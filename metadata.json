@@ -1,0 +1,6 @@
+{
+  "name": "Isaac Search Engine",
+  "description": "A Google-like search engine featuring Firestore-backed page storage, Cloud Storage-synced Whoosh indexing, crawl controls, and interactive site graph visualizations.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
