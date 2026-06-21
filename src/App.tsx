@@ -5,7 +5,7 @@ import {
   CheckCircle, Server, Activity, ArrowRight, Loader2, RefreshCw,
   Clock, Calendar, Settings, BookOpen, Mic, MicOff, Image as ImageIcon,
   ArrowUp, ThumbsUp, Folder, FolderPlus, FolderOpen, ChevronRight, ChevronDown, Bookmark, FileCode,
-  Volume2, VolumeX, Keyboard, Command, Copy, Check
+  Volume2, VolumeX, Keyboard, Command, Copy, Check, Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -271,6 +271,20 @@ export default function App() {
     } catch (err) {
       showToast('Could not copy link to clipboard.', 'error');
     }
+  };
+
+  const handleEmailShare = (e: React.MouseEvent, item: PageItem) => {
+    e.stopPropagation();
+    const subject = encodeURIComponent(`Search Result: ${item.title}`);
+    const body = encodeURIComponent(
+      `Check out this search result from Isaac Search:\n\n` +
+      `Title: ${item.title}\n` +
+      `URL: ${item.url}\n` +
+      `Description: ${item.snippet}\n\n` +
+      `Sent via Isaac Search.`
+    );
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    showToast(`Opening your email client to share!`, 'success');
   };
 
   const filteredSearchResults = useMemo(() => {
@@ -1944,6 +1958,18 @@ export default function App() {
                           )}
                         </button>
 
+                        {/* Share via Email button */}
+                        <button
+                          type="button"
+                          id={`email-share-btn-${item.id}`}
+                          onClick={(e) => handleEmailShare(e, item)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-800 bg-[#070719]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700 cursor-pointer transition-all active:scale-95 text-xs font-bold font-sans"
+                          title="Share page details via Email"
+                        >
+                          <Mail className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Share Email</span>
+                        </button>
+
                         <button
                           type="button"
                           id={`expand-btn-${item.id}`}
@@ -3415,6 +3441,17 @@ export default function App() {
                                         <span>Copy Link</span>
                                       </>
                                     )}
+                                  </button>
+
+                                  {/* Share via Email compact button */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleEmailShare(e, item)}
+                                    className="p-1 px-2.5 rounded-md border border-slate-800 bg-[#070719]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700 flex items-center gap-1 cursor-pointer transition-all text-xs font-bold font-sans"
+                                    title="Share page details via Email"
+                                  >
+                                    <Mail className="w-3 h-3 text-slate-400" />
+                                    <span>Email</span>
                                   </button>
 
                                   {/* Upvote duplicate */}
