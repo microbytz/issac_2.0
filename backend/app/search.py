@@ -120,6 +120,10 @@ def search_query(q, page=1, limit=10, domain=None, date_from=None, date_to=None,
                 hit_list.sort(key=lambda x: x.get("indexed_time", 0.0))
             elif sort_by == "backlinks_desc":
                 hit_list.sort(key=lambda x: x.get("backlinks", 0), reverse=True)
+            elif sort_by == "title_asc":
+                hit_list.sort(key=lambda x: (x.get("title") or "").lower())
+            elif sort_by == "title_desc":
+                hit_list.sort(key=lambda x: (x.get("title") or "").lower(), reverse=True)
                 
             # pagination slicing
             total_hits = len(hit_list)

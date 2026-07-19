@@ -1,1 +1,210 @@
 @import "tailwindcss";
+
+/* High Contrast Light Mode Variables and Classes */
+.theme-light {
+  /* High contrast colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --text-main: #0f172a;
+  --text-muted: #334155;
+  --text-dim: #475569;
+  --border-color: #cbd5e1;
+  --border-focus: #4f46e5;
+  --indigo-accent: #4f46e5;
+}
+
+/* General overrides for high contrast light mode */
+.theme-light {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Override background of main containers */
+.theme-light main {
+  background-color: transparent !important;
+}
+
+/* Search input container high contrast */
+.theme-light .bg-\[\#070719\]\/90,
+.theme-light .bg-\[\#070719\]\/40,
+.theme-light .bg-\[\#070719\]\/95,
+.theme-light .bg-\[\#09091f\],
+.theme-light .bg-\[\#090924\] {
+  background-color: #ffffff !important;
+}
+
+/* Inside search box or filters bg */
+.theme-light .bg-\[\#03030d\] {
+  background-color: #f1f5f9 !important;
+}
+
+/* Navigation Buttons Inactive */
+.theme-light nav button.border-slate-800 {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+.theme-light nav button.border-slate-800:hover {
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+
+/* Navigation Buttons Active */
+.theme-light nav button.border-indigo-500 {
+  background-color: #f5f3ff !important;
+  border-color: #6366f1 !important;
+  color: #4f46e5 !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Inactive nav icon backgrounds */
+.theme-light .bg-slate-900\/60 {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+}
+/* Active nav icon backgrounds */
+.theme-light .bg-indigo-500\/15 {
+  background-color: #e0e7ff !important;
+  color: #4f46e5 !important;
+}
+
+/* High contrast inputs and textareas */
+.theme-light input,
+.theme-light select,
+.theme-light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+.theme-light input::placeholder {
+  color: #64748b !important;
+  opacity: 1;
+}
+
+/* Search Results Card Overrides */
+.theme-light article {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+}
+.theme-light article:hover {
+  border-color: #4f46e5 !important;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Search results text colors for contrast */
+.theme-light .text-slate-100,
+.theme-light .text-slate-200,
+.theme-light .text-slate-300,
+.theme-light .text-white {
+  color: #0f172a !important;
+}
+.theme-light .text-slate-400,
+.theme-light .text-slate-500 {
+  color: #475569 !important;
+}
+
+/* Link titles in search results */
+.theme-light article h3 {
+  color: #1e1b4b !important;
+}
+.theme-light article h3 a:hover {
+  color: #4f46e5 !important;
+}
+
+/* Mark/Highlight style override for high-contrast light theme */
+.theme-light mark {
+  background-color: #fef08a !important; /* high-contrast yellow highlight */
+  color: #854d0e !important;
+  border-radius: 2px;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+/* Advanced filters dropdown high contrast */
+.theme-light .border-slate-805,
+.theme-light .border-slate-800,
+.theme-light .border-slate-800\/60,
+.theme-light .divide-slate-800\/60 > * {
+  border-color: #cbd5e1 !important;
+}
+
+/* Badges & Tags */
+.theme-light .bg-indigo-955\/40,
+.theme-light .bg-indigo-950\/40 {
+  background-color: #f5f3ff !important;
+  border-color: #ddd6fe !important;
+  color: #5b21b6 !important;
+}
+
+.theme-light .bg-slate-900 {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+.theme-light .bg-indigo-600\/20 {
+  background-color: #e0e7ff !important;
+  border-color: #c7d2fe !important;
+  color: #3730a3 !important;
+}
+
+.theme-light .text-indigo-400,
+.theme-light .text-indigo-300 {
+  color: #4338ca !important;
+}
+
+/* Suggestions Dropdown and items */
+.theme-light .divide-slate-800\/60 > div:hover {
+  background-color: #f5f3ff !important;
+  color: #4f46e5 !important;
+}
+
+/* Search within Results status badges */
+.theme-light .text-indigo-400 {
+  color: #4f46e5 !important;
+}
+
+/* Selected Node Pulse Ripple Animations */
+@keyframes selectedNodeRipples {
+  0% {
+    transform: scale(1);
+    opacity: 0.95;
+    stroke-width: 2.5px;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+    stroke-width: 0.8px;
+  }
+}
+
+.animate-selected-ripple {
+  animation: selectedNodeRipples 2.2s cubic-bezier(0.25, 0, 0, 1) infinite;
+}
+
+/* Smooth transition for graph coordinates */
+.graph-transition-element {
+  transition: cx 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              cy 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              x1 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              y1 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              x2 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              y2 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              x 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              y 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              r 0.3s ease,
+              stroke 0.3s ease,
+              stroke-width 0.3s ease,
+              opacity 0.3s ease;
+}
+
+/* Instant updates when dragging to prevent delay */
+.graph-dragging-element {
+  transition: none !important;
+}
+
+
