@@ -481,6 +481,7 @@ export default function App() {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>('proj_default_1');
   const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<ResearchProject | null>(null);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [newProjectStatus, setNewProjectStatus] = useState<'planning' | 'in_progress' | 'review' | 'completed'>('planning');
@@ -6745,9 +6746,7 @@ export default function App() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (confirm(`Are you sure you want to delete project "${proj.name}"? This will wipe its summary, tasks and details.`)) {
-                              handleDeleteProject(proj.id);
-                            }
+                            setProjectToDelete(proj);
                           }}
                           className="absolute right-2 top-2 p-1 opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 rounded transition-all cursor-pointer"
                           title="Delete Project"
@@ -7326,6 +7325,65 @@ export default function App() {
                   className="px-4 py-2 bg-red-600 hover:bg-red-550 border border-red-700/50 text-white font-bold text-xs rounded-xl cursor-pointer transition-all active:scale-95"
                 >
                   Clear All
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Project Confirmation Modal */}
+      <AnimatePresence>
+        {projectToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop with dynamic blur */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setProjectToDelete(null)}
+              className="fixed inset-0 bg-[#02020a]/80 backdrop-blur-sm"
+            />
+            
+            {/* Modal Card */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-md bg-[#090924] border border-slate-800 rounded-2xl p-6 shadow-[0_15px_40px_rgba(0,0,0,0.8)] overflow-hidden z-50 font-sans"
+            >
+              {/* Decorative background flare */}
+              <div className="absolute -top-24 -right-24 w-48 h-48 bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-red-950/40 border border-red-500/20 rounded-xl text-red-400 shrink-0">
+                  <Trash2 className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100 font-sans">Delete Research Project?</h3>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Are you sure you want to delete project <strong className="text-slate-200">"{projectToDelete.name}"</strong>? This action is permanent and will completely wipe its summaries, active tasks, custom notes, and linked pages.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 mt-6 border-t border-slate-800/60 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setProjectToDelete(null)}
+                  className="px-4 py-2 border border-slate-800 bg-[#070719]/40 hover:bg-slate-900/60 text-slate-300 font-medium text-xs rounded-xl cursor-pointer transition-all active:scale-95"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDeleteProject(projectToDelete.id);
+                    setProjectToDelete(null);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-550 border border-red-700/50 text-white font-bold text-xs rounded-xl cursor-pointer transition-all active:scale-95"
+                >
+                  Delete Project
                 </button>
               </div>
             </motion.div>
