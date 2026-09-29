@@ -185,7 +185,41 @@ export function exportProjectToPDF(project: any, linkedCols: any[]) {
         doc.text(taskTextLines[j], marginX + 8, y);
         y += 6;
       }
-      y += 1;
+
+      // Render nested subtasks if present
+      if (task.subtasks && task.subtasks.length > 0) {
+        task.subtasks.forEach((subtask: any) => {
+          addPageIfNeeded(6);
+          const subX = marginX + 8;
+
+          // Indented tree guide dot/connector
+          doc.setDrawColor(199, 210, 254); // indigo-200
+          doc.setFillColor(243, 244, 246);
+          doc.rect(subX + 2, y - 2.8, 3, 3, subtask.completed ? 'FD' : 'D');
+
+          if (subtask.completed) {
+            doc.setDrawColor(79, 70, 229);
+            doc.line(subX + 2.5, y - 2.2, subX + 4.5, y - 0.4);
+            doc.line(subX + 4.5, y - 2.2, subX + 2.5, y - 0.4);
+          }
+
+          doc.setFont('Helvetica', subtask.completed ? 'normal' : 'normal');
+          doc.setFontSize(8.5);
+          doc.setTextColor(subtask.completed ? '#94a3b8' : '#334155');
+
+          const subLines = doc.splitTextToSize(subtask.text, contentWidth - 18);
+          doc.text(subLines[0], subX + 8, y);
+          y += 5;
+
+          for (let k = 1; k < subLines.length; k++) {
+            addPageIfNeeded(5);
+            doc.text(subLines[k], subX + 8, y);
+            y += 5;
+          }
+        });
+      }
+
+      y += 1.5;
     });
   } else {
     doc.setFont('Helvetica', 'italic');

@@ -1,20 +1,29 @@
 import os
 import logging
+from urllib.parse import urlparse
 from whoosh.index import create_in, open_dir, exists_in
 from whoosh.fields import Schema, TEXT, ID, NUMERIC
-from whoosh.qparser import QueryParser
+from whoosh.qparser import MultifieldParser, OrGroup, QueryParser
+from whoosh.scoring import BM25F
 from whoosh.spelling import SpellChecker
 
 logger = logging.getLogger(__name__)
+
 INDEX_DIR = os.getenv("WHOOSH_INDEX_DIR", "search_index")
+
+# BM25 field weights matching information retrieval priorities
+TITLE_WEIGHT = 3.0
+SNIPPET_WEIGHT = 1.5
+CONTENT_WEIGHT = 1.0
 
 def get_schema():
     return Schema(
         id=ID(stored=True, unique=True),
         url=ID(stored=True),
-        title=TEXT(stored=True),
-        content=TEXT(stored=True),
-        snippet=TEXT(stored=True),
+        canonical_url=TEXT(stored=True),
+        title=TEXT(stored=True, field_boost=TITLE_WEIGHT),
+        content=TEXT(stored=True, field_boost=CONTENT_WEIGHT),
+        snippet=TEXT(stored=True, field_boost=SNIPPET_WEIGHT),
         indexed_at=TEXT(stored=True),
         indexed_time=NUMERIC(stored=True, type=float),
         backlinks=NUMERIC(stored=True, type=int)
@@ -28,16 +37,12 @@ def init_index():
         return create_in(INDEX_DIR, schema)
     try:
         ix = open_dir(INDEX_DIR)
-        # Recreate the index if schemas do not match, avoiding FormatError
-        if ix.schema != schema:
-            logger.info("Whoosh Schema mismatch detected. Recreating index.")
-            return create_in(INDEX_DIR, schema)
         return ix
     except Exception as e:
         logger.error(f"Whoosh index corrupted or unreadable: {e}. Recreating index.")
         return create_in(INDEX_DIR, schema)
 
-def index_page(page_id, url, title, content, snippet, indexed_at=None, indexed_time=None, backlinks=0):
+def index_page(page_id, url, title, content, snippet, canonical_url=None, indexed_at=None, indexed_time=None, backlinks=0):
     try:
         ix = init_index()
         writer = ix.writer()
@@ -51,6 +56,7 @@ def index_page(page_id, url, title, content, snippet, indexed_at=None, indexed_t
         writer.update_document(
             id=str(page_id),
             url=url,
+            canonical_url=canonical_url or "",
             title=title or "",
             content=content or "",
             snippet=snippet or "",
@@ -62,23 +68,32 @@ def index_page(page_id, url, title, content, snippet, indexed_at=None, indexed_t
     except Exception as e:
         logger.error(f"Whoosh indexing failed: {e}")
 
-def search_query(q, page=1, limit=10, domain=None, date_from=None, date_to=None, min_backlinks=None, sort_by=None):
+def search_query(q, page=1, limit=10, domain=None, date_from=None, date_to=None, min_backlinks=None, sort_by="relevance"):
     try:
         ix = init_index()
-        with ix.searcher() as searcher:
-            query = QueryParser("content", ix.schema).parse(q)
+        # Use BM25F scoring model configured with optimal k1=1.2 and b=0.75
+        bm25_model = BM25F(B=0.75, K1=1.2)
+        with ix.searcher(weighting=bm25_model) as searcher:
+            # Multifield query parser with weighted title vs. snippet vs. content
+            field_boosts = {
+                "title": TITLE_WEIGHT,
+                "snippet": SNIPPET_WEIGHT,
+                "content": CONTENT_WEIGHT
+            }
+            parser = MultifieldParser(["title", "snippet", "content"], ix.schema, fieldboosts=field_boosts, group=OrGroup.factory(0.9))
+            query = parser.parse(q)
             results = searcher.search(query, limit=200)
             
             hit_list = []
+            q_terms = [t.lower() for t in q.strip().split() if t.strip()]
             for hit in results:
                 # domain filter
                 url = hit.get("url") or ""
                 if domain:
-                    from urllib.parse import urlparse
                     parsed_domain = urlparse(url).netloc.lower() or url.lower()
                     if domain.lower() not in parsed_domain:
                         continue
-                
+                        
                 # date range filter
                 hit_time = hit.get("indexed_time") or 0.0
                 if date_from is not None:
@@ -93,7 +108,7 @@ def search_query(q, page=1, limit=10, domain=None, date_from=None, date_to=None,
                             continue
                     except:
                         pass
-                        
+                                
                 # backlinks filter
                 backlinks = hit.get("backlinks") or 0
                 if min_backlinks is not None:
@@ -102,19 +117,41 @@ def search_query(q, page=1, limit=10, domain=None, date_from=None, date_to=None,
                             continue
                     except:
                         pass
+
+                raw_score = float(hit.score) if hasattr(hit, "score") and hit.score is not None else 1.0
+                title_str = hit.get("title") or ""
+                snippet_str = hit.get("snippet") or (hit.highlights("content") if hasattr(hit, "highlights") else "")
+                content_str = hit.get("content") or ""
                 
+                title_matches = sum(title_str.lower().count(t) for t in q_terms) if q_terms else 0
+                snippet_matches = sum(snippet_str.lower().count(t) for t in q_terms) if q_terms else 0
+                content_matches = sum(content_str.lower().count(t) for t in q_terms) if q_terms else 0
+
                 hit_list.append({
                     "id": hit.get("id"),
                     "url": hit.get("url"),
-                    "title": hit.get("title"),
-                    "snippet": hit.get("snippet") or (hit.highlights("content") if hasattr(hit, 'highlights') else ""),
+                    "title": title_str,
+                    "snippet": snippet_str,
                     "indexed_at": hit.get("indexed_at") or "",
                     "indexed_time": hit.get("indexed_time") or 0.0,
-                    "backlinks": int(hit.get("backlinks") or 0)
+                    "backlinks": int(hit.get("backlinks") or 0),
+                    "score": round(raw_score, 4),
+                    "bm25_score": round(raw_score, 4),
+                    "bm25_details": {
+                        "total": round(raw_score, 4),
+                        "titleWeight": TITLE_WEIGHT,
+                        "snippetWeight": SNIPPET_WEIGHT,
+                        "contentWeight": CONTENT_WEIGHT,
+                        "titleMatches": title_matches,
+                        "snippetMatches": snippet_matches,
+                        "contentMatches": content_matches
+                    }
                 })
             
             # sorting
-            if sort_by == "date_desc":
+            if sort_by == "relevance" or not sort_by:
+                hit_list.sort(key=lambda x: x.get("bm25_score", 0.0), reverse=True)
+            elif sort_by == "date_desc":
                 hit_list.sort(key=lambda x: x.get("indexed_time", 0.0), reverse=True)
             elif sort_by == "date_asc":
                 hit_list.sort(key=lambda x: x.get("indexed_time", 0.0))
@@ -146,7 +183,6 @@ def get_suggestions(q, limit=5):
         ix = init_index()
         suggestions = []
         with ix.searcher() as searcher:
-            # Simple term autocomplete
             corrector = searcher.corrector("content")
             suggestions = corrector.suggest(q, limit=limit)
         return suggestions

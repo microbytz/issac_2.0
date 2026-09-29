@@ -174,8 +174,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
         } else {
           throw new Error('Backend unreached or did not return valid JSON');
         }
-      } catch (err: any) {
-        console.warn('Error loading community notes from backend, falling back to local:', err);
+      } catch (_err: any) {
         const stored = getLocalStorageNotes(url);
         setNotes(stored);
       } finally {
@@ -216,8 +215,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
       } else {
         throw new Error('Could not submit note to server');
       }
-    } catch (err) {
-      console.warn('Backend note save failed, storing note in local fallback:', err);
+    } catch (_err) {
       const newNote: CommunityNote = {
         id: `local-note-${Math.random().toString(36).substring(2, 11)}`,
         url: url,
@@ -313,9 +311,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
       } else {
         throw new Error('Not valid JSON response on vote');
       }
-    } catch (err) {
-      console.warn('Backend vote failed, persisting vote locally:', err);
-      
+    } catch (_err) {
       // Save current modified state to local storage
       setNotes(prev => {
         saveLocalStorageNotes(url, prev);
@@ -343,12 +339,12 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-2 text-xs font-bold text-slate-300 hover:text-indigo-300 transition-colors cursor-pointer outline-none"
+          className="flex items-center gap-2 text-xs font-bold text-slate-300 hover:text-blue-300 transition-colors cursor-pointer outline-none"
         >
-          <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
+          <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
           <span className="font-sans">Community Notes</span>
           {notes.length > 0 && (
-            <span className="bg-indigo-950 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.2 rounded-full font-mono text-[9px] font-bold">
+            <span className="bg-blue-950 text-blue-300 border border-blue-500/20 px-1.5 py-0.2 rounded-full font-mono text-[9px] font-bold">
               {notes.length}
             </span>
           )}
@@ -367,7 +363,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
               setIsAddingNote(true);
               setIsExpanded(true);
             }}
-            className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold font-sans text-indigo-300 hover:text-white bg-indigo-950/40 hover:bg-indigo-900/50 border border-indigo-500/30 rounded-lg transition-all cursor-pointer active:scale-95"
+            className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold font-sans text-blue-300 hover:text-white bg-blue-950/40 hover:bg-blue-900/50 border border-blue-500/30 rounded-lg transition-all cursor-pointer active:scale-95"
           >
             <Plus className="w-3 h-3" />
             <span>Add Note</span>
@@ -394,7 +390,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
                 initial={{ opacity: 0, y: -5 }}
                 animate={{ opacity: 1, y: 0 }}
                 onSubmit={handleAddNote}
-                className="mb-3 bg-[#03030d] border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5"
+                className="mb-3 bg-[#030712] border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider">Write Helpful Community Note</span>
@@ -414,7 +410,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
                   maxLength={250}
                   required
                   rows={2}
-                  className="bg-[#070719] border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/50 resize-none font-sans leading-relaxed"
+                  className="bg-[#070e24] border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500/50 resize-none font-sans leading-relaxed"
                 />
 
                 <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
@@ -422,7 +418,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
                   <button
                     type="submit"
                     disabled={isSubmitting || !newNoteContent.trim()}
-                    className="flex items-center gap-1 px-3 py-1.5 font-bold font-sans rounded-lg text-white bg-indigo-600 hover:bg-indigo-500 transition-all disabled:opacity-40 disabled:hover:bg-indigo-600 cursor-pointer"
+                    className="flex items-center gap-1 px-3 py-1.5 font-bold font-sans rounded-lg text-white bg-blue-600 hover:bg-blue-500 transition-all disabled:opacity-40 disabled:hover:bg-blue-600 cursor-pointer"
                   >
                     {isSubmitting ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -438,7 +434,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
             {/* Note Listing */}
             {isLoading ? (
               <div className="flex items-center justify-center py-4 gap-2 text-xs text-slate-500">
-                <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
                 <span>Loading notes...</span>
               </div>
             ) : error ? (
@@ -462,7 +458,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
                       key={note.id}
                       className={`group border rounded-xl p-2.5 flex flex-col gap-2 transition-all ${
                         isHighQuality 
-                          ? 'bg-[#0a0f29]/40 border-indigo-500/20 shadow-[0_2px_12px_rgba(99,102,241,0.04)]' 
+                          ? 'bg-[#08112b]/60 border-blue-500/25 shadow-[0_2px_12px_rgba(37,99,235,0.08)]' 
                           : 'bg-slate-950/30 border-slate-800/80 hover:border-slate-800'
                       }`}
                     >
@@ -470,8 +466,8 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
                       <div className="flex items-center justify-between text-[9px] font-mono text-slate-500">
                         <div className="flex items-center gap-1">
                           {isHighQuality && (
-                            <span className="flex items-center gap-0.5 text-indigo-400 font-bold px-1 py-0.2 rounded bg-indigo-500/10 border border-indigo-500/20">
-                              <Sparkles className="w-2.5 h-2.5 fill-indigo-400/20" />
+                            <span className="flex items-center gap-0.5 text-blue-400 font-bold px-1 py-0.2 rounded bg-blue-500/10 border border-blue-500/20">
+                              <Sparkles className="w-2.5 h-2.5 fill-blue-400/20" />
                               Top Rated
                             </span>
                           )}

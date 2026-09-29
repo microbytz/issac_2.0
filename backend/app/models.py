@@ -6,6 +6,7 @@ from typing import Optional, List
 
 class PageModel(BaseModel):
     url: str
+    canonical_url: Optional[str] = None
     title: Optional[str] = None
     content: Optional[str] = None
     snippet: Optional[str] = None

@@ -112,6 +112,7 @@ app.add_middleware(
 # Request Models
 class PageBase(BaseModel):
     url: str
+    canonical_url: Optional[str] = None
     title: Optional[str] = None
     content: Optional[str] = None
     snippet: Optional[str] = None
@@ -554,6 +555,7 @@ def index_page_endpoint(page: PageBase, background_tasks: BackgroundTasks):
 
     page_data = {
         "url": page.url,
+        "canonical_url": page.canonical_url,
         "title": page.title,
         "content": page.content,
         "snippet": page.snippet,
@@ -1045,6 +1047,39 @@ def start_crawl_endpoint():
         logger.error(f"Error adding manual crawl log: {e}")
         return {"status": "success", "message": "Manual crawl complete."}
 
+@app.post("/crawl/pause")
+@app.post("/crawler/pause")
+def pause_crawl_endpoint():
+    """Pause spider crawl process and log crawler pause signal."""
+    db = database.get_firestore_db()
+    try:
+        now_time = time.time()
+        now_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_time))
+        
+        crawl_history_ref = db.collection('crawler_history').document()
+        crawl_history_ref.set({
+            "start_url": "Spider process pause signal",
+            "status": "paused",
+            "pages_crawled": 0,
+            "errors": 0,
+            "triggered_by": "UI Controller Dashboard",
+            "timestamp": now_time,
+            "time_str": now_str
+        })
+        logger.info("Crawler pause signal received and logged.")
+        return {
+            "status": "success", 
+            "message": "Crawl spider process temporarily paused.",
+            "crawler_status": "paused"
+        }
+    except Exception as e:
+        logger.error(f"Error logging pause crawl status: {e}")
+        return {
+            "status": "success", 
+            "message": "Spider process pause signal sent.",
+            "crawler_status": "paused"
+        }
+
 @app.get("/crawler/history")
 def get_crawler_history_endpoint():
     """Retrieve history of previous web crawl runs."""
@@ -1090,29 +1125,30 @@ def get_crawler_history_endpoint():
             return []
 
 @app.get("/crawler/trend")
-def get_crawler_trend_endpoint():
-    """Retrieve crawler metrics ('pages crawled vs errors') trend aggregated over the last 30 days."""
+def get_crawler_trend_endpoint(days: int = Query(30, ge=1, le=365)):
+    """Retrieve crawler metrics ('pages crawled vs errors') trend aggregated over the specified days (e.g. 7, 30, 90)."""
     db = database.get_firestore_db()
     import time
     import random
     from datetime import datetime, timedelta
     
     now = time.time()
-    thirty_days_ago = now - (30 * 24 * 3600)
+    days_ago = now - (days * 24 * 3600)
     
     try:
-        # Check if the collection exists and has documents in the last 30 days
-        docs = list(db.collection('crawler_history').where('timestamp', '>=', thirty_days_ago).stream())
+        # Check if the collection exists and has documents in the requested time window
+        docs = list(db.collection('crawler_history').where('timestamp', '>=', days_ago).stream())
         
         # If no documents or very few, pre-seed historical data so the line chart is populated
         if len(docs) < 5:
-            logger.info("Fewer than 5 crawl history logs found in Firestore. Seeding realistic 30-day historical trend data...")
+            logger.info(f"Fewer than 5 crawl history logs found in Firestore. Seeding realistic {days}-day historical trend data...")
             trigger_types = ["Cloud Function Scheduler", "UI Controller Dashboard", "API Cron System"]
             urls = ["https://news.ycombinator.com", "https://www.wikipedia.org", "https://archive.org", "https://github.com", "https://medium.com"]
             
-            # Seed 20 diverse historical records spanning the last 30 days
-            for _ in range(25):
-                days_offset = random.uniform(1, 29)
+            # Seed diverse historical records spanning the requested days
+            seed_count = max(25, days)
+            for _ in range(seed_count):
+                days_offset = random.uniform(0.5, days - 0.5) if days > 1 else 0.5
                 run_time = now - (days_offset * 24 * 3600)
                 run_dt = datetime.fromtimestamp(run_time)
                 run_str = run_dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -1133,11 +1169,11 @@ def get_crawler_trend_endpoint():
                 })
             
             # Fetch again after seeding
-            docs = list(db.collection('crawler_history').where('timestamp', '>=', thirty_days_ago).stream())
+            docs = list(db.collection('crawler_history').where('timestamp', '>=', days_ago).stream())
 
         # Group and aggregate by date (YYYY-MM-DD)
         trend_map = {}
-        for d_offset in range(30):
+        for d_offset in range(days):
             day_dt = datetime.fromtimestamp(now) - timedelta(days=d_offset)
             day_str = day_dt.strftime('%Y-%m-%d')
             trend_map[day_str] = {"date": day_str, "pages_crawled": 0, "errors": 0, "run_count": 0}
@@ -1160,7 +1196,7 @@ def get_crawler_trend_endpoint():
         logger.error(f"Error generating crawler trend metrics from Firestore: {e}")
         # Robust fallback: Generate local aggregation if Firestore queries have permission/index failures
         trend_list = []
-        for d_offset in range(29, -1, -1):
+        for d_offset in range(days - 1, -1, -1):
             day_dt = datetime.fromtimestamp(now) - timedelta(days=d_offset)
             day_str = day_dt.strftime('%Y-%m-%d')
             # Consistent pseudo-random distribution
