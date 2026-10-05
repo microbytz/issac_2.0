@@ -55,6 +55,7 @@ All client-side state is stored in standard Web Storage APIs scoped to the appli
 | `isaac_tag_hierarchy_relationships` | `src/components/TagHierarchyTree.tsx` | `Record<string, string>` (JSON) | Stores custom parent-child tag taxonomy relationships configured by the user. |
 | `isaac_community_notes_<url>` | `src/components/CommunityNotesSection.tsx` | `CommunityNote[]` (JSON) | Local cache of community notes attached to a specific URL. |
 | `isaac_community_note_votes_<url>` | `src/components/CommunityNotesSection.tsx` | `Record<string, 'up' \| 'down'>` | Tracks which community notes the user has upvoted or downvoted on a URL. |
+| `isaac_server_url` | `src/utils/apiConfig.ts`, `SettingsModal.tsx` | `string` (URL) | Custom backend host URL configured by user for native mobile app / remote syncing. |
 
 ### `sessionStorage` Keys
 

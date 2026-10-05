@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import TradingViewWidget from './TradingViewWidget';
+import { apiUrl } from '../utils/apiConfig';
 import {
   FireplexitySource,
   FireplexityNewsItem,
@@ -172,7 +173,7 @@ export default function FireplexityTab({
   }, [autoIndexScrapedPages]);
 
   useEffect(() => {
-    fetch('/api/fireplexity/check-env')
+    fetch(apiUrl('/api/fireplexity/check-env'))
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
         if (data) setEnvStatus(data);
@@ -224,7 +225,7 @@ export default function FireplexityTab({
     }, 100);
 
     try {
-      const response = await fetch('/api/fireplexity/search', {
+      const response = await fetch(apiUrl('/api/fireplexity/search'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

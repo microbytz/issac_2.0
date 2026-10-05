@@ -4,8 +4,9 @@ import {
   MessageSquare, ThumbsUp, ThumbsDown, Plus, Send, Loader2, 
   AlertCircle, ChevronDown, ChevronUp, Sparkles, Check
 } from 'lucide-react';
+import { apiUrl } from '../utils/apiConfig';
 
-const API_BASE = '/api';
+const API_BASE = apiUrl('/api');
 
 export interface CommunityNote {
   id: string;

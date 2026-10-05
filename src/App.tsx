@@ -53,8 +53,11 @@ import {
 } from './utils/fireplexityUtils';
 import { calculateWhooshBM25Scores, WHOOSH_FIELD_WEIGHTS, BM25FieldBreakdown } from './utils/bm25Scoring';
 import { downloadCollectionJsonArchive, downloadMasterCollectionsJsonArchive } from './utils/collectionExport';
+import { apiUrl, getBackendBaseUrl, isMobileOrNativeApp, setCustomServerUrl, getCustomServerUrl } from './utils/apiConfig';
+import { fetchClientSideWebResults } from './utils/clientSearchFallback';
 
-const API_BASE = '/api';
+// Dynamic API base: resolves to deployed Cloud Run server URL in mobile/Capacitor, or relative /api in browser
+const API_BASE = apiUrl('/api');
 
 // Interfaces
 interface SearchCollection {
@@ -4009,8 +4012,8 @@ export default function App() {
         throw new Error('Backend unreached, using fast local search matching.');
       }
     } catch (e) {
-      // Local Client Query Engine (Fallback)
-      setTimeout(() => {
+      // Local Client Query Engine & Direct Open Metasearch Fallback (for mobile & offline resilience)
+      try {
         const lowerQ = queryStr.toLowerCase();
         const terms = lowerQ.trim().split(/\s+/).filter(Boolean);
 
@@ -4042,6 +4045,32 @@ export default function App() {
             ))
           );
         });
+
+        // If no local offline matches and search fallback is enabled, fetch directly from open web APIs (Wikipedia / Hacker News)
+        if (filtered.length === 0 && searxngFallbackEnabled) {
+          try {
+            const directWebResults = await fetchClientSideWebResults(queryStr);
+            if (directWebResults.length > 0) {
+              filtered = directWebResults as PageItem[];
+              setLastSearchFallbackMeta({
+                triggered: true,
+                firestoreCount: 0,
+                fallbackCount: directWebResults.length,
+                provider: 'Open Metasearch (Direct Mobile/Offline)',
+                autoIndexedCount: searxngAutoIndex ? directWebResults.length : 0
+              });
+              if (searxngAutoIndex) {
+                setPagesList(prev => {
+                  const seen = new Set(prev.map(p => p.url.toLowerCase()));
+                  const toAdd = (directWebResults as PageItem[]).filter(
+                    np => np.url && !seen.has(np.url.toLowerCase())
+                  );
+                  return toAdd.length > 0 ? [...toAdd, ...prev] : prev;
+                });
+              }
+            }
+          } catch (_) {}
+        }
         
         // Apply domain filter client-side
         const domainToUseClient = overrideDomain !== undefined ? overrideDomain : filterDomain;
@@ -4158,8 +4187,8 @@ export default function App() {
         } else {
           setSpellcheck(null);
         }
-        setIsSearching(false);
-      }, 500);
+      } catch (_) {}
+      setIsSearching(false);
       return;
     }
     setIsSearching(false);
@@ -7122,53 +7151,9 @@ export default function App() {
       <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-zinc-500/10 rounded-full blur-[120px] pointer-events-none transition-opacity duration-300 ${isLight ? 'opacity-0' : 'opacity-100'}`} />
       <div className={`absolute top-[20%] right-[10%] w-[250px] h-[250px] bg-zinc-500/10 rounded-full blur-[80px] pointer-events-none transition-opacity duration-300 ${isLight ? 'opacity-0' : 'opacity-100'}`} />
 
-      {/* Top Right Controls: Settings & Theme Toggle */}
-      <div className="absolute top-6 right-6 z-50 flex items-center gap-2">
-        <button
-          id="global-settings-btn"
-          onClick={() => setShowSettingsModal(true)}
-          type="button"
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold ${
-            isLight
-              ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
-              : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
-          }`}
-          title="Open Settings & Privacy (⌘,)"
-        >
-          <Settings className="w-4 h-4 text-blue-500" />
-          <span className="hidden sm:inline">Settings</span>
-          {clearHistoryOnExit && (
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Clear History on Exit active" />
-          )}
-        </button>
-
-        <button
-          id="global-theme-toggle-btn"
-          onClick={toggleTheme}
-          type="button"
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold ${
-            isLight
-              ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
-              : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
-          }`}
-          title={isLight ? "Switch to Dark Mode" : "Switch to High-Contrast Light Mode"}
-        >
-          {isLight ? (
-            <>
-              <Moon className="w-4 h-4 text-slate-700" />
-              <span>Dark Mode</span>
-            </>
-          ) : (
-            <>
-              <Sun className="w-4 h-4 text-amber-400" />
-              <span>High-Contrast Light</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Quick Jump / Command Palette Trigger */}
-      <div className="absolute top-6 left-6 z-50 animate-fade-in">
+      {/* Top Utility Bar: Quick Jump (Left) & Settings + Theme Toggle (Right) */}
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6 flex items-center justify-between gap-2 relative z-50 animate-fade-in">
+        {/* Quick Jump / Command Palette Trigger */}
         <button
           id="global-quick-jump-btn"
           onClick={() => {
@@ -7177,7 +7162,7 @@ export default function App() {
             setSelectedPaletteIndex(0);
           }}
           type="button"
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold ${
+          className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 ${
             isLight
               ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
               : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
@@ -7190,10 +7175,55 @@ export default function App() {
             ⌘K
           </span>
         </button>
+
+        {/* Top Right Controls: Settings & Theme Toggle */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            id="global-settings-btn"
+            onClick={() => setShowSettingsModal(true)}
+            type="button"
+            className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold ${
+              isLight
+                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
+                : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
+            }`}
+            title="Open Settings & Privacy (⌘,)"
+          >
+            <Settings className="w-4 h-4 text-blue-500" />
+            <span className="hidden sm:inline">Settings</span>
+            {clearHistoryOnExit && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Clear History on Exit active" />
+            )}
+          </button>
+
+          <button
+            id="global-theme-toggle-btn"
+            onClick={toggleTheme}
+            type="button"
+            className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold ${
+              isLight
+                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
+                : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
+            }`}
+            title={isLight ? "Switch to Dark Mode" : "Switch to High-Contrast Light Mode"}
+          >
+            {isLight ? (
+              <>
+                <Moon className="w-4 h-4 text-slate-700" />
+                <span>Dark Mode</span>
+              </>
+            ) : (
+              <>
+                <Sun className="w-4 h-4 text-amber-400" />
+                <span>High-Contrast Light</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Header Centered Layout */}
-      <header className="py-8 px-6 text-center relative z-10">
+      <header className="pt-4 pb-6 sm:py-6 px-6 text-center relative z-10">
         <div className="max-w-3xl mx-auto flex flex-col items-center gap-6">
           
           {/* Brand Logo and Title */}

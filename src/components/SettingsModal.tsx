@@ -16,8 +16,18 @@ import {
   ExternalLink,
   Lock,
   Zap,
-  Clock
+  Clock,
+  Server,
+  Smartphone,
+  RefreshCw
 } from 'lucide-react';
+import {
+  getBackendBaseUrl,
+  getCustomServerUrl,
+  setCustomServerUrl,
+  isMobileOrNativeApp,
+  DEFAULT_REMOTE_BACKEND_URL
+} from '../utils/apiConfig';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -46,6 +56,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [lastSessionTerminationTest, setLastSessionTerminationTest] = useState<string | null>(null);
+
+  const [serverUrlInput, setServerUrlInput] = useState<string>(() => {
+    return getCustomServerUrl() || (isMobileOrNativeApp() ? DEFAULT_REMOTE_BACKEND_URL : '');
+  });
+  const [serverPingStatus, setServerPingStatus] = useState<{
+    testing: boolean;
+    success?: boolean;
+    message?: string;
+    latencyMs?: number;
+  }>({ testing: false });
+
+  const handleTestServer = async () => {
+    const rawTarget = serverUrlInput.trim() || getBackendBaseUrl() || (isMobileOrNativeApp() ? DEFAULT_REMOTE_BACKEND_URL : '');
+    const targetUrl = rawTarget.replace(/\/$/, '');
+    setServerPingStatus({ testing: true });
+    const start = performance.now();
+    try {
+      const endpoint = `${targetUrl}/api/suggest?q=test`;
+      const res = await fetch(endpoint, { signal: AbortSignal.timeout(4500) });
+      const latency = Math.round(performance.now() - start);
+      if (res.ok) {
+        setServerPingStatus({
+          testing: false,
+          success: true,
+          latencyMs: latency,
+          message: `Connected (${latency}ms)`
+        });
+      } else {
+        setServerPingStatus({
+          testing: false,
+          success: false,
+          message: `Server returned HTTP ${res.status}`
+        });
+      }
+    } catch (_) {
+      setServerPingStatus({
+        testing: false,
+        success: false,
+        message: 'Unreachable (App will auto-fallback to direct Wikipedia / Hacker News)'
+      });
+    }
+  };
+
+  const handleSaveServerUrl = () => {
+    setCustomServerUrl(serverUrlInput);
+    if (onNotify) {
+      onNotify(serverUrlInput ? `Server URL updated to: ${serverUrlInput}` : 'Reset to default server connection.', 'success');
+    }
+  };
+
+  const handleResetServerUrl = () => {
+    setCustomServerUrl('');
+    setServerUrlInput(isMobileOrNativeApp() ? DEFAULT_REMOTE_BACKEND_URL : '');
+    if (onNotify) {
+      onNotify('Server connection restored to default.', 'info');
+    }
+  };
 
   // Close on Escape key press
   useEffect(() => {
@@ -379,6 +446,106 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     )}
                   </button>
                 )}
+              </div>
+            </div>
+
+            {/* Third Section: Backend Server & Mobile Connectivity */}
+            <div
+              className={`p-5 rounded-2xl border transition-all ${
+                isLight
+                  ? 'bg-slate-50/70 border-slate-200 shadow-xs'
+                  : 'bg-[#0b1328]/50 border-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                    <Server className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold font-sans">Server & Mobile Sync</h3>
+                    <p className="text-xs text-slate-500">Cloud backend connection and mobile offline fallback</p>
+                  </div>
+                </div>
+
+                {isMobileOrNativeApp() && (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center gap-1">
+                    <Smartphone className="w-3 h-3" />
+                    <span>Android / Mobile</span>
+                  </span>
+                )}
+              </div>
+
+              <div
+                className={`p-4 rounded-xl border flex flex-col gap-3 ${
+                  isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                }`}
+              >
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1">
+                    Active Backend API Host
+                  </label>
+                  <p className="text-[11px] text-slate-400 mb-2">
+                    Used by search, live crawler, and Fireplexity AI. Mobile app connects to this host to fetch live uncrawled results.
+                  </p>
+                  
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="url"
+                      value={serverUrlInput}
+                      onChange={(e) => setServerUrlInput(e.target.value)}
+                      placeholder={isMobileOrNativeApp() ? DEFAULT_REMOTE_BACKEND_URL : 'Same Origin (/api)'}
+                      className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                        isLight
+                          ? 'bg-slate-50 border-slate-300 text-slate-800'
+                          : 'bg-slate-950 border-slate-700 text-slate-200'
+                      }`}
+                    />
+                    <button
+                      onClick={handleSaveServerUrl}
+                      type="button"
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white cursor-pointer active:scale-95 transition-all shadow-xs"
+                    >
+                      Save
+                    </button>
+                    {getCustomServerUrl() && (
+                      <button
+                        onClick={handleResetServerUrl}
+                        type="button"
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                        title="Reset to default cloud server"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Connection Ping Tester */}
+                <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between flex-wrap gap-2 text-xs">
+                  <button
+                    onClick={handleTestServer}
+                    disabled={serverPingStatus.testing}
+                    type="button"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium cursor-pointer active:scale-95 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${serverPingStatus.testing ? 'animate-spin text-blue-400' : 'text-slate-400'}`} />
+                    <span>{serverPingStatus.testing ? 'Pinging...' : 'Test Connection'}</span>
+                  </button>
+
+                  {serverPingStatus.message && (
+                    <span className={`text-[11px] font-mono flex items-center gap-1 ${
+                      serverPingStatus.success ? 'text-emerald-400 font-bold' : 'text-amber-400'
+                    }`}>
+                      {serverPingStatus.success ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      )}
+                      <span>{serverPingStatus.message}</span>
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
