@@ -12,11 +12,15 @@ import {
   LayoutTemplate, TrendingUp, ListPlus, Eye, EyeOff, AlertTriangle, XCircle, X, Terminal,
   RotateCw, Zap, FileJson, Upload, Cpu, CornerDownLeft, Hash, ArrowUpRight, Table,
   CornerDownRight, ListTree, ChevronsUpDown, CheckCheck, FolderArchive, Archive, GripVertical, ArrowUpDown,
-  Tags, GitMerge, FolderTree, GitFork, Shield
+  Tags, GitMerge, FolderTree, GitFork, Shield, Newspaper, Video, ShieldCheck, ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { exportProjectToPDF, exportSearchResultsToPDF } from './utils/pdfGenerator';
 import ProjectExportMenu from './components/ProjectExportMenu';
+import InstantAnswerWidget from './components/InstantAnswerWidget';
+import NewsResultsView from './components/NewsResultsView';
+import VideosResultsView from './components/VideosResultsView';
+import { SafeSearchLevel, getStoredSafeSearch, setStoredSafeSearch, filterItemBySafeSearch } from './utils/safeSearchUtils';
 import {
   downloadProjectMarkdown,
   downloadProjectReferencesCsv,
@@ -1845,11 +1849,15 @@ export default function App() {
     return typeof window !== 'undefined' && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
   });
 
-  // Search Mode & Image results states
-  const [searchMode, setSearchMode] = useState<'all' | 'images'>('all');
+  // Search Mode (All, Images, Videos, News - DuckDuckGo style) & Image results states
+  const [searchMode, setSearchMode] = useState<'all' | 'images' | 'videos' | 'news'>('all');
   const [imageResults, setImageResults] = useState<ImageItem[]>([]);
   const [isImagesLoading, setIsImagesLoading] = useState(false);
   const [selectedColorFilter, setSelectedColorFilter] = useState<string | null>(null);
+
+  // SafeSearch Level (Strict, Moderate, Off)
+  const [safeSearchLevel, setSafeSearchLevel] = useState<SafeSearchLevel>(() => getStoredSafeSearch());
+  const [showSafeSearchMenu, setShowSafeSearchMenu] = useState(false);
 
   // Advanced Filter state variables
   const [filterDomain, setFilterDomain] = useState('');
@@ -2028,10 +2036,13 @@ export default function App() {
       return !isExcluded && !isBlocked;
     });
 
+    // SafeSearch Filter
+    const safeFiltered = domainFiltered.filter(p => filterItemBySafeSearch(p, safeSearchLevel, 'text'));
+
     // Tag filtering
-    let tagFiltered = domainFiltered;
+    let tagFiltered = safeFiltered;
     if (selectedSearchTags.length > 0) {
-      tagFiltered = domainFiltered.filter(p => {
+      tagFiltered = safeFiltered.filter(p => {
         const pTags = (p.tags && p.tags.length > 0)
           ? p.tags
           : (pagesList.find(pl => pl.url === p.url || pl.id === p.id)?.tags || []);
@@ -2053,7 +2064,7 @@ export default function App() {
       p.snippet.toLowerCase().includes(innerQ) || 
       p.url.toLowerCase().includes(innerQ)
     );
-  }, [searchResults, searchWithinQuery, excludedDomains, blockedDomains, selectedSearchTags, searchTagFilterLogic, pagesList]);
+  }, [searchResults, searchWithinQuery, excludedDomains, blockedDomains, selectedSearchTags, searchTagFilterLogic, pagesList, safeSearchLevel]);
   const [pendingApprovalList, setPendingApprovalList] = useState<PendingIndexItem[]>(DEFAULT_PENDING_ITEMS);
   const [autoTaggingServiceActive, setAutoTaggingServiceActive] = useState(true);
   const [requireTagApprovalBeforeIndex, setRequireTagApprovalBeforeIndex] = useState(true);
@@ -7957,41 +7968,158 @@ export default function App() {
               </div>
             )}
 
-            {/* Search Tabs (All vs. Images) */}
-            <div className="flex items-center gap-1.5 border-b border-slate-800/80 mt-2 pb-px select-none">
-              <button
-                id="search-mode-all-btn"
-                onClick={() => setSearchMode('all')}
-                type="button"
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all relative cursor-pointer ${
-                  searchMode === 'all'
-                    ? 'border-blue-505 text-blue-400'
-                    : 'border-transparent text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <Search className="w-4 h-4" />
-                <span>All Results</span>
-                {searchMode === 'all' && (
-                  <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
+            {/* Search Tabs (All, Images, Videos, News) + SafeSearch Toggle */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 mt-2 pb-px select-none">
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                <button
+                  id="search-mode-all-btn"
+                  onClick={() => setSearchMode('all')}
+                  type="button"
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all relative cursor-pointer shrink-0 ${
+                    searchMode === 'all'
+                      ? 'border-blue-400 text-blue-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <Search className="w-4 h-4" />
+                  <span>All Results</span>
+                  {searchMode === 'all' && (
+                    <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
+                  )}
+                </button>
+
+                <button
+                  id="search-mode-images-btn"
+                  onClick={() => setSearchMode('images')}
+                  type="button"
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all relative cursor-pointer shrink-0 ${
+                    searchMode === 'images'
+                      ? 'border-blue-400 text-blue-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  <span>Images</span>
+                  {searchMode === 'images' && (
+                    <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
+                  )}
+                </button>
+
+                <button
+                  id="search-mode-videos-btn"
+                  onClick={() => setSearchMode('videos')}
+                  type="button"
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all relative cursor-pointer shrink-0 ${
+                    searchMode === 'videos'
+                      ? 'border-blue-400 text-blue-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <Video className="w-4 h-4" />
+                  <span>Videos</span>
+                  {searchMode === 'videos' && (
+                    <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
+                  )}
+                </button>
+
+                <button
+                  id="search-mode-news-btn"
+                  onClick={() => setSearchMode('news')}
+                  type="button"
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all relative cursor-pointer shrink-0 ${
+                    searchMode === 'news'
+                      ? 'border-blue-400 text-blue-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <Newspaper className="w-4 h-4" />
+                  <span>News</span>
+                  {searchMode === 'news' && (
+                    <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
+                  )}
+                </button>
+              </div>
+
+              {/* SafeSearch Segment / Dropdown */}
+              <div className="relative pb-1">
+                <button
+                  id="safesearch-toggle-btn"
+                  onClick={() => setShowSafeSearchMenu(prev => !prev)}
+                  type="button"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-all cursor-pointer ${
+                    safeSearchLevel === 'strict'
+                      ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400'
+                      : safeSearchLevel === 'moderate'
+                      ? 'bg-blue-950/40 border-blue-800/60 text-blue-400'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-400'
+                  }`}
+                  title="Toggle SafeSearch Filtering"
+                >
+                  {safeSearchLevel === 'strict' ? (
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : safeSearchLevel === 'moderate' ? (
+                    <Shield className="w-3.5 h-3.5 text-blue-400" />
+                  ) : (
+                    <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                  )}
+                  <span>SafeSearch:</span>
+                  <span className="capitalize">{safeSearchLevel}</span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
+
+                {showSafeSearchMenu && (
+                  <div
+                    className={`absolute right-0 top-full mt-1.5 w-52 rounded-xl border p-1.5 shadow-xl z-50 animate-fade-in ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-[#090f24] border-slate-800'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase tracking-wider font-mono">
+                      SafeSearch Filter
+                    </div>
+                    {(['strict', 'moderate', 'off'] as SafeSearchLevel[]).map(lvl => (
+                      <button
+                        key={lvl}
+                        onClick={() => {
+                          setSafeSearchLevel(lvl);
+                          setStoredSafeSearch(lvl);
+                          setShowSafeSearchMenu(false);
+                          showToast(`SafeSearch set to ${lvl.toUpperCase()}`, 'info');
+                        }}
+                        type="button"
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                          safeSearchLevel === lvl
+                            ? 'bg-blue-600/15 text-blue-400 font-bold'
+                            : isLight
+                            ? 'text-slate-700 hover:bg-slate-100'
+                            : 'text-slate-300 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <div className="flex flex-col text-left">
+                          <span className="capitalize font-bold">{lvl}</span>
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            {lvl === 'strict'
+                              ? 'Filter adult text, images & videos'
+                              : lvl === 'moderate'
+                              ? 'Filter explicit media, allow text'
+                              : 'Turn off SafeSearch filtering'}
+                          </span>
+                        </div>
+                        {safeSearchLevel === lvl && <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </button>
-              <button
-                id="search-mode-images-btn"
-                onClick={() => setSearchMode('images')}
-                type="button"
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all relative cursor-pointer ${
-                  searchMode === 'images'
-                    ? 'border-blue-555 border-blue-400 text-blue-400'
-                    : 'border-transparent text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <ImageIcon className="w-4 h-4" />
-                <span>Images</span>
-                {searchMode === 'images' && (
-                  <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
-                )}
-              </button>
+              </div>
             </div>
+
+            {/* Zero-Click Instant Answer Widget (DuckDuckGo style) */}
+            {searchQuery.trim() && (
+              <InstantAnswerWidget
+                query={searchQuery}
+                isLight={isLight}
+                onSelectTag={handleToggleSearchTag}
+              />
+            )}
 
             {/* Conditional Results Segments */}
             {searchMode === 'all' ? (
@@ -9141,7 +9269,7 @@ export default function App() {
                   )}
                 </div>
               </div>
-            ) : (() => {
+            ) : searchMode === 'images' ? (() => {
               const filteredImages = selectedColorFilter
                 ? imageResults.filter(img => img.dominant_color === selectedColorFilter)
                 : imageResults;
@@ -9373,7 +9501,35 @@ export default function App() {
                   )}
                 </div>
               );
-            })()}
+            })() : searchMode === 'news' ? (
+              <NewsResultsView
+                query={searchQuery}
+                isLight={isLight}
+                safeSearchLevel={safeSearchLevel}
+                onBookmark={(item) => {
+                  const targetCol = collections[0];
+                  if (targetCol) {
+                    handleAddPageToCollection(targetCol.id, item as PageItem);
+                    showToast(`Saved to "${targetCol.name}" folder`, 'success');
+                  }
+                }}
+                onNotify={showToast}
+              />
+            ) : (
+              <VideosResultsView
+                query={searchQuery}
+                isLight={isLight}
+                safeSearchLevel={safeSearchLevel}
+                onBookmark={(item) => {
+                  const targetCol = collections[0];
+                  if (targetCol) {
+                    handleAddPageToCollection(targetCol.id, item as PageItem);
+                    showToast(`Saved to "${targetCol.name}" folder`, 'success');
+                  }
+                }}
+                onNotify={showToast}
+              />
+            )}
 
 
 

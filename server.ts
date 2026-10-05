@@ -1794,136 +1794,21 @@ Return ONLY the questions, one per line, with no numbering or bullets.`;
     res.status(404).json({ error: 'API endpoint not found' });
   });
 
-  // Gzip compression for static & Vite assets so large bundles transfer ~8x faster over Cloud Run proxy
-  const gzipCache = new Map<string, Buffer>();
   const distPath = path.join(__dirname, 'dist');
   const distIndexHtml = path.join(distPath, 'index.html');
-  const srcAppTsx = path.join(__dirname, 'src', 'App.tsx');
 
-  const isDistFresh = (): boolean => {
-    try {
-      if (!fs.existsSync(distIndexHtml)) return false;
-      const distMtime = fs.statSync(distIndexHtml).mtimeMs;
-      const appMtime = fs.existsSync(srcAppTsx) ? fs.statSync(srcAppTsx).mtimeMs : 0;
-      return distMtime >= appMtime;
-    } catch (_) {
-      return false;
-    }
-  };
-
-  // Serve pre-built /dist assets with gzip compression whenever /dist is up-to-date
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      next();
-      return;
-    }
-    if (!isDistFresh()) {
-      next();
-      return;
-    }
-
-    const reqPath = req.path === '/' ? '/index.html' : req.path;
-    const candidateFile = path.join(distPath, reqPath);
-
-    // Prevent directory traversal
-    if (!candidateFile.startsWith(distPath)) {
-      next();
-      return;
-    }
-
-    let targetFile = candidateFile;
-    if (!fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) {
-      // If a browser with a cached index.html requests a previous build's /assets/index-*.js or .css,
-      // resolve it to the current build's entry asset so it never 404s or receives text/html.
-      if (reqPath.startsWith('/assets/')) {
-        const requestedBase = path.basename(reqPath);
-        const prefixMatch = requestedBase.match(/^([a-zA-Z0-9_-]+)-[a-zA-Z0-9_-]+\.(js|css)$/);
-        const assetsDir = path.join(distPath, 'assets');
-        if (prefixMatch && fs.existsSync(assetsDir)) {
-          const [, prefix, ext] = prefixMatch;
-          const currentMatch = fs
-            .readdirSync(assetsDir)
-            .find(f => f.startsWith(`${prefix}-`) && f.endsWith(`.${ext}`));
-          if (currentMatch) {
-            targetFile = path.join(assetsDir, currentMatch);
-          }
-        }
-      }
-
-      if (!fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) {
-        // SPA fallback for navigation routes only (never return index.html for missing .js/.css assets)
-        const hasExt = Boolean(path.extname(reqPath));
-        if (!hasExt) {
-          targetFile = distIndexHtml;
-        } else {
-          next();
-          return;
-        }
-      }
-    }
-
-    try {
-      const ext = path.extname(targetFile).toLowerCase();
-      const mimeMap: Record<string, string> = {
-        '.html': 'text/html; charset=utf-8',
-        '.js': 'application/javascript; charset=utf-8',
-        '.mjs': 'application/javascript; charset=utf-8',
-        '.css': 'text/css; charset=utf-8',
-        '.json': 'application/json; charset=utf-8',
-        '.svg': 'image/svg+xml',
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.ico': 'image/x-icon'
-      };
-      const contentType = mimeMap[ext] || 'application/octet-stream';
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Vary', 'Accept-Encoding');
-
-      if (ext === '.html') {
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-      } else {
-        res.setHeader('Cache-Control', 'public, max-age=300');
-      }
-
-      const stat = fs.statSync(targetFile);
-      const cacheKey = `${targetFile}:${stat.mtimeMs}`;
-      const acceptEncoding = String(req.headers['accept-encoding'] || '');
-
-      if (
-        acceptEncoding.includes('gzip') &&
-        ['.html', '.js', '.mjs', '.css', '.json', '.svg'].includes(ext)
-      ) {
-        let compressed = gzipCache.get(cacheKey);
-        if (!compressed) {
-          const raw = fs.readFileSync(targetFile);
-          compressed = zlib.gzipSync(raw);
-          gzipCache.set(cacheKey, compressed);
-        }
-        res.setHeader('Content-Encoding', 'gzip');
-        res.setHeader('Content-Length', String(compressed.length));
-        if (req.method === 'HEAD') {
-          res.status(200).end();
-        } else {
-          res.status(200).end(compressed);
-        }
+  if (process.env.NODE_ENV === 'production') {
+    // Production Mode: Serve compiled dist assets
+    app.use(express.static(distPath));
+    app.use((req: Request, res: Response) => {
+      if (req.path.startsWith('/assets/')) {
+        res.status(404).end('Asset not found');
         return;
       }
-
-      res.setHeader('Content-Length', String(stat.size));
-      if (req.method === 'HEAD') {
-        res.status(200).end();
-        return;
-      }
-      const raw = fs.readFileSync(targetFile);
-      res.status(200).end(raw);
-    } catch (_) {
-      next();
-    }
-  });
-
-  if (process.env.NODE_ENV !== 'production') {
+      res.sendFile(distIndexHtml);
+    });
+  } else {
+    // Development Mode: Use Vite Dev Server middleware directly
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: {
@@ -1933,15 +1818,25 @@ Return ONLY the questions, one per line, with no numbering or bullets.`;
       },
       appType: 'spa'
     });
+
+    // If an old browser tab requests a cached /assets/* bundle from previous builds,
+    // fallback gracefully so the browser never crashes with HTML MIME type error
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.path.startsWith('/assets/')) {
+        const candidate = path.join(distPath, req.path);
+        if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
+          res.sendFile(candidate);
+          return;
+        }
+        res.status(404).end('Asset not found');
+        return;
+      }
+      next();
+    });
+
     app.use(vite.middlewares);
-    // Pre-warm transform cache so fallback dev requests are instantaneous
     vite.transformRequest('/src/main.tsx').catch(() => {});
     vite.transformRequest('/src/App.tsx').catch(() => {});
-  } else {
-    app.use(express.static(distPath));
-    app.use((_req: Request, res: Response) => {
-      res.sendFile(distIndexHtml);
-    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {

@@ -47,9 +47,24 @@ This document provides a complete overview of all user-facing features and capab
   - Click **Show More** at the bottom of Web Search or Image Search results to load and view additional matches on demand, or click **Show Less** to collapse the list back to the top results.
 - **Download Results as PDF**: Export your current search results into a clean, readable PDF document with one click.
 
-### E. Image Search & Color Palette Filtering
-- **Visual Image Grid**: Switch to the **Images** view to browse visual results for your query.
-- **Color Palette Filter**: Filter images by their dominant color (`Red`, `Orange`, `Yellow`, `Green`, `Teal`, `Blue`, `Purple`, `Pink`, `Brown`, `White`, `Black`) or view `All` colors at once.
+### E. Zero-Click Instant Answer Widgets (DuckDuckGo Style)
+- **Interactive Weather Widget**: Type `weather`, `weather in Tokyo`, `Paris weather`, or `temperature in London` to view a live weather card complete with temperature, animated condition icon, °C/°F toggle, "feels like" temp, humidity %, wind speed (mph & km/h), precipitation chance, 5-day daily forecast, and quick city switchers.
+- **Enhanced Quick Dictionary**: Type `define serendipity`, `meaning of resilience`, `algorithm definition`, or `what does entropy mean` to see authentic pronunciation phonetics, part of speech badge, multiple definitions, example usage, clickable synonym pills, and text-to-speech audio pronunciation.
+- **Accurate Unit & Currency Converter**: Type queries like `100 usd to eur`, `50 c in f`, `10 km to miles`, `convert 100 lbs in kg`, or `$100 to €` to view exact mathematical conversions with step-by-step formula breakdown, live FX exchange rate synchronization, interactive dropdowns for unit switching, and a ⇄ Swap button.
+- **Dynamic Wikipedia InfoBox with Typo Tolerance**: Type any famous person, scientist, historical figure, or concept (such as `issac newton` [with typo correction], `Albert Einstein`, `Nikola Tesla`, `Marie Curie`, or `Alan Turing`) to view an instant biographical infobox with portrait image, key fact attributes (Born, Died, Known for, Alma mater), speech synthesis narration, and direct Wikipedia article link.
+- **Interactive Calculator**: Type math expressions (such as `45 * 12 + 8`, `sqrt(144)`, or `25% of 800`) to open an interactive on-page calculator with display, copy button, and interactive keypad.
+- **Visual Color Picker**: Type `color picker` or a hex code like `#3b82f6` to access an interactive color preview with one-click HEX, RGB, and HSL copy buttons.
+- **World Time & Clock**: Search `time in Tokyo`, `time in London`, or `time in New York` to see real-time localized clocks, current dates, and timezone indicators.
+- **Interactive Stopwatch**: Search `stopwatch` or `timer` to start, pause, and reset an interactive digital stopwatch.
+
+### F. Multi-Media Tabs: Images, Videos & News
+- **Image Search & Color Palette Filter**: Browse visual image thumbnails and filter them by dominant colors (`Red`, `Blue`, `Green`, `Teal`, etc.).
+- **Dedicated Videos Tab**: Browse video search results with video thumbnail previews, duration badges (`14:28`), creator channels, view counts, and an **Inline Video Player Modal** to watch videos directly inside Isaac Search without opening new tabs.
+- **Dedicated News Tab**: Browse real-time news headlines, relative publication times (`2h ago`, `Yesterday`), publisher tags (Reuters, TechCrunch, Hacker News), summary snippets, and read-aloud playback.
+
+### G. SafeSearch Filter Toggle
+- **3-Level SafeSearch Control**: Switch between **Strict** (filters adult text, images & videos), **Moderate** (filters explicit multimedia while preserving informative articles), and **Off**.
+- **Persistent Preferences**: SafeSearch settings persist across sessions in local storage.
 
 ---
 
