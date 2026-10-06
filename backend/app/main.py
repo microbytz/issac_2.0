@@ -22,69 +22,33 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Isaac Search Engine API")
 
-def download_index_from_storage():
-    """Download Whoosh search index binary files from Firebase Storage to local search_index directory."""
-    logger.info("Syncing Whoosh search index from Firebase Storage on startup...")
-    try:
-        bucket = database.get_storage_bucket()
-        if not bucket:
-            logger.warning("No firebase storage bucket configured. Index sync skipped.")
-            return
 
-        os.makedirs("search_index", exist_ok=True)
-        blobs = list(bucket.list_blobs(prefix="search_index/"))
-        
-        if not blobs:
-            logger.info("No index files found in Firebase Storage, starting with blank index.")
-            return
+class StripApiPrefixMiddleware:
+    """Serve every route under both `/path` and `/api/path`, matching the frontend's `/api` base."""
 
-        cnt = 0
-        for blob in blobs:
-            # We skip directory placeholder blobs if any
-            if blob.name.endswith('/'):
-                continue
-            
-            # Make sure parent directory exists locally
-            local_path = blob.name
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            blob.download_to_filename(local_path)
-            cnt += 1
-            
-        logger.info(f"Synchronized {cnt} search index files from GCS bucket.")
-    except Exception as e:
-        logger.error(f"Error copying Whoosh index files from Firebase Storage: {e}")
+    def __init__(self, asgi_app):
+        self.app = asgi_app
 
-def upload_index_to_storage():
-    """Upload updated local Whoosh search index files to Firebase Storage to ensure global syncing."""
-    logger.info("Uploading local Whoosh search index files to Firebase Storage...")
-    try:
-        bucket = database.get_storage_bucket()
-        if not bucket:
-            logger.warning("No storage bucket configured. Cannot back up index.")
-            return
-            
-        index_dir = "search_index"
-        if not os.path.exists(index_dir):
-            return
-            
-        for root, _, files in os.walk(index_dir):
-            for file in files:
-                local_path = os.path.join(root, file)
-                # Blob path inside GCS bucket
-                blob_name = local_path.replace("\\", "/")
-                blob = bucket.blob(blob_name)
-                blob.upload_from_filename(local_path)
-                
-        logger.info("Search index backup upload to GCS completed successfully.")
-    except Exception as e:
-        logger.error(f"Failed to backup search index to Cloud Storage: {e}")
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope.get("path", "")
+            if path == "/api" or path.startswith("/api/"):
+                scope = dict(scope)
+                scope["path"] = path[4:] or "/"
+                raw_path = scope.get("raw_path")
+                if raw_path:
+                    scope["raw_path"] = raw_path[4:] or b"/"
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(StripApiPrefixMiddleware)
 
 @app.on_event("startup")
 def startup_event():
     logger.info("Starting up Isaac Search Engine API...")
     
     # 1. Sync search indexes
-    download_index_from_storage()
+    search.download_index_from_storage()
     
     # 2. Check Firestore for initialization seeds
     try:
@@ -145,6 +109,7 @@ class CommunityNoteCreate(BaseModel):
 
 class CommunityNoteVote(BaseModel):
     vote_type: str # "helpful" or "not_helpful"
+    previous_vote: Optional[str] = None # vote being replaced, so its count is reverted
 
 # Endpoints
 @app.get("/search")
@@ -181,21 +146,6 @@ def search_endpoint(
     # Write cache
     cache.cache_set(cache_key, results, ttl=60)
     return results
-
-@app.get("/pages/{doc_id}")
-def get_page_detail_endpoint(doc_id: str):
-    """Retrieve full page content profile details from Firestore."""
-    db = database.get_firestore_db()
-    try:
-        doc_ref = db.collection('pages').document(doc_id)
-        doc = doc_ref.get()
-        if doc.exists:
-            return doc.to_dict()
-        else:
-            raise HTTPException(status_code=404, detail="Page not found in Firestore database.")
-    except Exception as e:
-        logger.error(f"Error reading page detail {doc_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 DEFAULT_NOTES = [
     {
@@ -371,14 +321,21 @@ def vote_note_endpoint(note_id: str, req: CommunityNoteVote):
         
     if not note:
         raise HTTPException(status_code=404, detail="Community note not found.")
-        
-    if req.vote_type == "helpful":
-        note["helpful_count"] = note.get("helpful_count", 0) + 1
-    elif req.vote_type == "not_helpful":
-        note["not_helpful_count"] = note.get("not_helpful_count", 0) + 1
-    else:
+
+    vote_fields = {"helpful": "helpful_count", "not_helpful": "not_helpful_count"}
+    if req.vote_type not in vote_fields:
         raise HTTPException(status_code=400, detail="Invalid vote type. Must be 'helpful' or 'not_helpful'.")
-        
+    if req.previous_vote is not None and req.previous_vote not in vote_fields:
+        raise HTTPException(status_code=400, detail="Invalid previous_vote. Must be 'helpful' or 'not_helpful'.")
+
+    note.setdefault("helpful_count", 0)
+    note.setdefault("not_helpful_count", 0)
+    if req.previous_vote != req.vote_type:
+        if req.previous_vote:
+            prev_field = vote_fields[req.previous_vote]
+            note[prev_field] = max(0, note[prev_field] - 1)
+        note[vote_fields[req.vote_type]] += 1
+
     note["score"] = note["helpful_count"] - note["not_helpful_count"]
     
     if db_note_ref:
@@ -391,6 +348,21 @@ def vote_note_endpoint(note_id: str, req: CommunityNoteVote):
             logger.warning(f"Failed to update note vote in Firestore: {e}")
             
     return note
+
+@app.get("/pages/{doc_id}")
+def get_page_detail_endpoint(doc_id: str):
+    """Retrieve full page content profile details from Firestore."""
+    db = database.get_firestore_db()
+    try:
+        doc_ref = db.collection('pages').document(doc_id)
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict()
+        else:
+            raise HTTPException(status_code=404, detail="Page not found in Firestore database.")
+    except Exception as e:
+        logger.error(f"Error reading page detail {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/suggest")
 def suggest_endpoint(q: str = Query(...), limit: int = Query(5, ge=1)):
@@ -587,7 +559,7 @@ def index_page_endpoint(page: PageBase, background_tasks: BackgroundTasks):
     )
     
     # Sync index up to Storage
-    upload_index_to_storage()
+    search.upload_index_to_storage()
     
     # Invalidate search cache
     cache.invalidate_search_cache()

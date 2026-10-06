@@ -23,6 +23,81 @@ const __dirname = path.dirname(__filename);
 
 const PORT = 3000;
 
+const MAX_CATALOG_PAGES = 500;
+const MAX_SERVER_SEEDS = 500;
+const MAX_NOTE_LENGTH = 2000;
+const MAX_URL_LENGTH = 2048;
+const MAX_PAGE_CONTENT_LENGTH = 200_000;
+
+function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || !value || value.length > MAX_URL_LENGTH) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
+function getCorsOrigins(): string[] {
+  return (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+}
+
+/**
+ * When ADMIN_API_KEY is configured, admin/mutating routes require it via
+ * `X-Admin-Key: <key>` or `Authorization: Bearer <key>`. When unset, routes stay open.
+ */
+function isAdminRequest(req: Request): boolean {
+  const adminKey = process.env.ADMIN_API_KEY?.trim();
+  if (!adminKey) return true;
+  const headerKey = req.header('x-admin-key');
+  const bearer = req.header('authorization')?.replace(/^Bearer\s+/i, '');
+  return headerKey === adminKey || bearer === adminKey;
+}
+
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (isAdminRequest(req)) {
+    next();
+    return;
+  }
+  res.status(401).json({ error: 'Admin API key required' });
+}
+
+function sortPages(pages: ServerIndexedPage[], sortBy: string) {
+  const time = (p: ServerIndexedPage) => (p.indexed_at ? new Date(p.indexed_at).getTime() : 0);
+  if (sortBy === 'likes_desc') {
+    pages.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+  } else if (sortBy === 'date_desc') {
+    pages.sort((a, b) => time(b) - time(a));
+  } else if (sortBy === 'date_asc') {
+    pages.sort((a, b) => time(a) - time(b));
+  } else if (sortBy === 'backlinks_desc') {
+    pages.sort((a, b) => (b.backlinks || 0) - (a.backlinks || 0));
+  } else if (sortBy === 'title_asc') {
+    pages.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  } else if (sortBy === 'title_desc') {
+    pages.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
+  }
+}
+
+/** Drops the oldest auto-indexed pages (never manually indexed or seed pages) once the catalog exceeds its cap. */
+function trimCatalog() {
+  for (let i = serverIndexedPages.length - 1; i >= 0 && serverIndexedPages.length > MAX_CATALOG_PAGES; i--) {
+    if (serverIndexedPages[i].auto_indexed) {
+      serverIndexedPages.splice(i, 1);
+    }
+  }
+}
+
+function trimSeeds() {
+  if (serverSeeds.length > MAX_SERVER_SEEDS) {
+    serverSeeds = serverSeeds.slice(0, MAX_SERVER_SEEDS);
+  }
+}
+
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
@@ -812,10 +887,20 @@ async function startServer() {
   const app = express();
 
   // Allow cross-origin requests from mobile apps (Capacitor https://localhost / capacitor://localhost)
+  // Set CORS_ORIGINS (comma-separated) to restrict cross-origin access; defaults to '*'.
+  const corsOrigins = getCorsOrigins();
   app.use((req: Request, res: Response, next: NextFunction) => {
-    res.header('Access-Control-Allow-Origin', '*');
+    if (corsOrigins.length === 0) {
+      res.header('Access-Control-Allow-Origin', '*');
+    } else {
+      const origin = req.header('origin');
+      if (origin && corsOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+      }
+      res.header('Vary', 'Origin');
+    }
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Admin-Key');
     if (req.method === 'OPTIONS') {
       res.sendStatus(200);
       return;
@@ -824,6 +909,37 @@ async function startServer() {
   });
 
   app.use(express.json({ limit: '5mb' }));
+
+  // Forward /api/* (except Fireplexity, which only lives here) to the FastAPI backend when PYTHON_BACKEND_URL is set.
+  const pythonBackendUrl = process.env.PYTHON_BACKEND_URL?.trim().replace(/\/$/, '');
+  if (pythonBackendUrl) {
+    app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
+      if (req.path.startsWith('/fireplexity')) {
+        next();
+        return;
+      }
+      try {
+        const headers: Record<string, string> = {};
+        for (const name of ['content-type', 'accept', 'authorization', 'x-admin-key']) {
+          const value = req.header(name);
+          if (value) headers[name] = value;
+        }
+        const hasBody = !['GET', 'HEAD'].includes(req.method);
+        const upstream = await fetch(`${pythonBackendUrl}${req.url}`, {
+          method: req.method,
+          headers,
+          body: hasBody && req.body !== undefined ? JSON.stringify(req.body) : undefined,
+          signal: AbortSignal.timeout(30000)
+        });
+        res.status(upstream.status);
+        const contentType = upstream.headers.get('content-type');
+        if (contentType) res.setHeader('Content-Type', contentType);
+        res.send(Buffer.from(await upstream.arrayBuffer()));
+      } catch (error: any) {
+        res.status(502).json({ error: `Python backend unreachable: ${error?.message || 'unknown error'}` });
+      }
+    });
+  }
 
   // ============================================================================
   // 1. COMMUNITY NOTES API ROUTES
@@ -840,8 +956,12 @@ async function startServer() {
 
   app.post('/api/pages/notes', (req: Request, res: Response) => {
     const { url, content } = req.body || {};
-    if (!url || !content) {
-      res.status(400).json({ error: 'url and content are required' });
+    if (!isHttpUrl(url) || typeof content !== 'string' || !content.trim()) {
+      res.status(400).json({ error: 'A valid http(s) url and non-empty content are required' });
+      return;
+    }
+    if (content.length > MAX_NOTE_LENGTH) {
+      res.status(400).json({ error: `content must be at most ${MAX_NOTE_LENGTH} characters` });
       return;
     }
     const newNote: ServerNote = {
@@ -860,28 +980,27 @@ async function startServer() {
 
   app.post('/api/pages/notes/:noteId/vote', (req: Request, res: Response) => {
     const { noteId } = req.params;
-    const { vote_type } = req.body || {};
-    for (const [url, notes] of communityNotesByUrl.entries()) {
-      const idx = notes.findIndex(n => n.id === noteId);
-      if (idx !== -1) {
-        const note = notes[idx];
-        if (vote_type === 'helpful') {
-          note.helpful_count += 1;
-        } else {
-          note.not_helpful_count += 1;
+    const { vote_type, previous_vote } = req.body || {};
+    const isVote = (v: unknown): v is 'helpful' | 'not_helpful' => v === 'helpful' || v === 'not_helpful';
+    if (!isVote(vote_type) || (previous_vote != null && !isVote(previous_vote))) {
+      res.status(400).json({ error: "vote_type (and previous_vote, if set) must be 'helpful' or 'not_helpful'" });
+      return;
+    }
+    for (const notes of communityNotesByUrl.values()) {
+      const note = notes.find(n => n.id === noteId);
+      if (note) {
+        if (previous_vote !== vote_type) {
+          if (previous_vote === 'helpful') note.helpful_count = Math.max(0, note.helpful_count - 1);
+          if (previous_vote === 'not_helpful') note.not_helpful_count = Math.max(0, note.not_helpful_count - 1);
+          if (vote_type === 'helpful') note.helpful_count += 1;
+          else note.not_helpful_count += 1;
         }
         note.score = note.helpful_count - note.not_helpful_count;
-        communityNotesByUrl.set(url, notes);
         res.json(note);
         return;
       }
     }
-    res.json({
-      id: noteId,
-      helpful_count: vote_type === 'helpful' ? 1 : 0,
-      not_helpful_count: vote_type === 'not_helpful' ? 1 : 0,
-      score: vote_type === 'helpful' ? 1 : -1
-    });
+    res.status(404).json({ error: 'Community note not found' });
   });
 
   // ============================================================================
@@ -891,7 +1010,7 @@ async function startServer() {
     res.json(serverSeeds);
   });
 
-  app.delete('/api/crawler/seeds/:id', (req: Request, res: Response) => {
+  app.delete('/api/crawler/seeds/:id', requireAdmin, (req: Request, res: Response) => {
     serverSeeds = serverSeeds.filter(s => s.id !== req.params.id);
     res.json({ status: 'deleted', id: req.params.id });
   });
@@ -900,7 +1019,7 @@ async function startServer() {
     res.json({ enabled: serverAutoCrawlEnabled });
   });
 
-  app.post('/api/crawler/auto-crawl', (req: Request, res: Response) => {
+  app.post('/api/crawler/auto-crawl', requireAdmin, (req: Request, res: Response) => {
     serverAutoCrawlEnabled = Boolean(req.body?.enabled);
     res.json({ enabled: serverAutoCrawlEnabled });
   });
@@ -909,8 +1028,16 @@ async function startServer() {
     res.json(serverSchedule);
   });
 
-  app.post('/api/crawler/schedule', (req: Request, res: Response) => {
+  app.post('/api/crawler/schedule', requireAdmin, (req: Request, res: Response) => {
     const { enabled, interval, start_url } = req.body || {};
+    if (interval !== undefined && interval !== 'daily' && interval !== 'weekly') {
+      res.status(400).json({ error: "interval must be 'daily' or 'weekly'" });
+      return;
+    }
+    if (start_url !== undefined && start_url !== '' && !isHttpUrl(start_url)) {
+      res.status(400).json({ error: 'start_url must be a valid http(s) URL' });
+      return;
+    }
     serverSchedule = {
       ...serverSchedule,
       enabled: Boolean(enabled),
@@ -928,19 +1055,19 @@ async function startServer() {
     res.json([]);
   });
 
-  app.post('/api/crawl/start', (_req: Request, res: Response) => {
+  app.post('/api/crawl/start', requireAdmin, (_req: Request, res: Response) => {
     res.json({ status: 'started' });
   });
 
-  app.post('/api/crawl/pause', (_req: Request, res: Response) => {
+  app.post('/api/crawl/pause', requireAdmin, (_req: Request, res: Response) => {
     res.json({ status: 'paused' });
   });
 
-  app.post('/api/crawl/retry', (_req: Request, res: Response) => {
+  app.post('/api/crawl/retry', requireAdmin, (_req: Request, res: Response) => {
     res.json({ status: 'retried' });
   });
 
-  app.post('/api/cloud-functions/scheduled-crawl', (_req: Request, res: Response) => {
+  app.post('/api/cloud-functions/scheduled-crawl', requireAdmin, (_req: Request, res: Response) => {
     res.json({ status: 'triggered' });
   });
 
@@ -971,12 +1098,12 @@ async function startServer() {
     res.json({ domain, urls });
   });
 
-  app.post('/api/crawler/common-crawl/import', (req: Request, res: Response) => {
-    const urls: string[] = Array.isArray(req.body?.urls) ? req.body.urls : [];
+  app.post('/api/crawler/common-crawl/import', requireAdmin, (req: Request, res: Response) => {
+    const urls: unknown[] = Array.isArray(req.body?.urls) ? req.body.urls.slice(0, 200) : [];
     let added = 0;
     let skipped = 0;
     for (const u of urls) {
-      if (serverSeeds.some(s => s.url === u)) {
+      if (!isHttpUrl(u) || serverSeeds.some(s => s.url === u)) {
         skipped++;
       } else {
         let domain = u;
@@ -993,6 +1120,7 @@ async function startServer() {
         added++;
       }
     }
+    trimSeeds();
     res.json({ added_count: added, skipped_count: skipped });
   });
 
@@ -1011,6 +1139,7 @@ async function startServer() {
     const forceFallback = req.query.force_fallback === 'true';
     const autoIndex = req.query.auto_index !== 'false';
     const minResultsThreshold = Math.max(1, Number(req.query.min_results) || 3);
+    const pageLimit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
 
     if (!queryStr) {
       res.json({
@@ -1084,6 +1213,9 @@ async function startServer() {
     }
 
     const firestoreCount = matchedPages.length;
+    const localMatchUrls = matchedPages.map(p => p.url.toLowerCase());
+    sortPages(matchedPages, sortBy);
+    matchedPages = matchedPages.slice((pageNum - 1) * pageLimit, pageNum * pageLimit);
     let fallbackTriggered = false;
     let fallbackProvider: string | null = null;
     let fallbackCount = 0;
@@ -1096,7 +1228,7 @@ async function startServer() {
       const searxData = await querySearXNGFallback(queryStr, domainFilter, pageNum);
       fallbackProvider = searxData.providerUsed;
 
-      const existingUrls = new Set(matchedPages.map(p => p.url.toLowerCase()));
+      const existingUrls = new Set(localMatchUrls);
       const allCatalogUrls = new Set(serverIndexedPages.map(p => p.url.toLowerCase()));
 
       for (const item of searxData.results) {
@@ -1139,28 +1271,13 @@ async function startServer() {
       }
     }
 
-    // Sort combined results
-    if (sortBy === 'likes_desc') {
-      matchedPages.sort((a, b) => (b.likes || 0) - (a.likes || 0));
-    } else if (sortBy === 'date_desc') {
-      matchedPages.sort((a, b) => {
-        const tA = a.indexed_at ? new Date(a.indexed_at).getTime() : 0;
-        const tB = b.indexed_at ? new Date(b.indexed_at).getTime() : 0;
-        return tB - tA;
-      });
-    } else if (sortBy === 'date_asc') {
-      matchedPages.sort((a, b) => {
-        const tA = a.indexed_at ? new Date(a.indexed_at).getTime() : 0;
-        const tB = b.indexed_at ? new Date(b.indexed_at).getTime() : 0;
-        return tA - tB;
-      });
-    } else if (sortBy === 'backlinks_desc') {
-      matchedPages.sort((a, b) => (b.backlinks || 0) - (a.backlinks || 0));
-    } else if (sortBy === 'title_asc') {
-      matchedPages.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-    } else if (sortBy === 'title_desc') {
-      matchedPages.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
+    if (autoIndexedCount > 0) {
+      trimCatalog();
+      trimSeeds();
     }
+
+    // Sort combined results
+    sortPages(matchedPages, sortBy);
 
     let spellcheck: string | null = null;
     if (lowerQ === 'fastapdoc') spellcheck = 'fastapi doc';
@@ -1285,24 +1402,32 @@ async function startServer() {
 
   app.post('/api/index', (req: Request, res: Response) => {
     const body = req.body || {};
-    if (body.url && body.title) {
+    if (!isHttpUrl(body.url) || typeof body.title !== 'string' || !body.title.trim()) {
+      res.status(400).json({ error: 'A valid http(s) url and a title are required' });
+      return;
+    }
+    {
       const existingIdx = serverIndexedPages.findIndex(
         p => p.url.toLowerCase() === String(body.url).toLowerCase()
       );
+      if (existingIdx !== -1 && !isAdminRequest(req)) {
+        res.status(401).json({ error: 'Admin API key required to overwrite an indexed page' });
+        return;
+      }
       const newPage: ServerIndexedPage = {
         id: body.id || `page_${Date.now()}`,
         url: String(body.url),
         canonical_url: body.canonical_url || String(body.url),
         title: String(body.title),
         snippet: String(body.snippet || body.content || '').slice(0, 300),
-        content: String(body.content || body.snippet || ''),
+        content: String(body.content || body.snippet || '').slice(0, MAX_PAGE_CONTENT_LENGTH),
         backlinks: Number(body.backlinks) || 1,
         indexed_at: body.indexed_at || new Date().toUTCString(),
         cache_hit: false,
         likes: Number(body.likes) || 0,
         author: body.author,
         language: body.language || 'English',
-        tags: Array.isArray(body.tags) ? body.tags : [],
+        tags: Array.isArray(body.tags) ? body.tags.filter((t: unknown) => typeof t === 'string').slice(0, 50) : [],
         meta_description: body.meta_description,
         keywords: body.keywords
       };
@@ -1310,11 +1435,10 @@ async function startServer() {
         serverIndexedPages[existingIdx] = { ...serverIndexedPages[existingIdx], ...newPage };
       } else {
         serverIndexedPages.unshift(newPage);
+        trimCatalog();
       }
       res.json({ status: 'indexed', page: newPage });
-      return;
     }
-    res.json({ status: 'indexed', page: req.body });
   });
 
   app.post('/api/index/image', (req: Request, res: Response) => {
@@ -1572,11 +1696,20 @@ CRITICAL FORMATTING RULE:
       let fullAnswer = '';
       let llmStreamSucceeded = false;
 
+      // Discards partial output from a provider that failed mid-stream before the next provider retries.
+      const resetPartialAnswer = () => {
+        if (fullAnswer.length > 0) {
+          fullAnswer = '';
+          writeNdjsonEvent(res, { type: 'text-reset' });
+        }
+      };
+
       // 2A. Primary Path 2: Stream using Groq ('moonshotai/kimi-k2-instruct' / 'llama-3.3-70b-versatile') if GROQ_API_KEY is set
       if (groqApiKey) {
         const groqModels = ['moonshotai/kimi-k2-instruct', 'llama-3.3-70b-versatile'];
         for (const modelName of groqModels) {
           if (llmStreamSucceeded) break;
+          resetPartialAnswer();
           try {
             const historyMessages = messages
               .slice(0, -1)
@@ -1647,6 +1780,7 @@ CRITICAL FORMATTING RULE:
       if (!llmStreamSucceeded) {
         const ai = getGeminiClient();
         if (ai) {
+          resetPartialAnswer();
           try {
             const historyText =
               messages.length > 1
@@ -1688,6 +1822,7 @@ CRITICAL FORMATTING RULE:
 
       // 2C. Clean structured synthesis from scraped Firecrawl Markdown if external LLM keys are unconfigured/unavailable
       if (!llmStreamSucceeded) {
+        resetPartialAnswer();
         const synthesized = buildStructuredSynthesisFromSources(query, sources);
         fullAnswer = synthesized;
         writeNdjsonEvent(res, {

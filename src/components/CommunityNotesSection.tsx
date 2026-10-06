@@ -241,7 +241,8 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
   };
 
   const handleVote = async (noteId: string, type: 'helpful' | 'not_helpful') => {
-    if (userVotes[noteId] === type) return;
+    const previousVote = userVotes[noteId];
+    if (previousVote === type) return;
 
     // Optimistically update local state for maximum UI responsiveness
     setNotes(prev => {
@@ -252,12 +253,12 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
 
           if (type === 'helpful') {
             helpfulDelta = 1;
-            if (userVotes[noteId] === 'not_helpful') {
+            if (previousVote === 'not_helpful') {
               notHelpfulDelta = -1;
             }
           } else {
             notHelpfulDelta = 1;
-            if (userVotes[noteId] === 'helpful') {
+            if (previousVote === 'helpful') {
               helpfulDelta = -1;
             }
           }
@@ -288,7 +289,8 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          vote_type: type
+          vote_type: type,
+          previous_vote: previousVote ?? null
         })
       });
 

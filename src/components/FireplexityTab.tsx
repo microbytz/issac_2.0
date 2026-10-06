@@ -302,6 +302,11 @@ export default function FireplexityTab({
                   )
                 );
               }
+            } else if (event.type === 'text-reset') {
+              // Server discarded a partial answer from a provider that failed mid-stream.
+              setTurns(prev =>
+                prev.map(t => (t.id === turnId ? { ...t, answer: '' } : t))
+              );
             } else if (event.type === 'text-delta') {
               const delta = event.data?.textDelta || '';
               if (delta) {

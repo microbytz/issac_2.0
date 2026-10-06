@@ -12,13 +12,16 @@ export function useNotebookAutosave(
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
 
-  // Sync with initialNotes when projectId changes
+  // Keep a ref to localNotes to avoid re-triggering the save interval on every keystroke
+  const localNotesRef = useRef(localNotes);
+
+  // Sync with initialNotes when projectId changes. The ref is reset immediately so listeners
+  // registered for the new project never see the previous project's notes.
   useEffect(() => {
+    localNotesRef.current = initialNotes;
     setLocalNotes(initialNotes);
   }, [projectId, initialNotes]);
 
-  // Keep a ref to localNotes to avoid re-triggering the save interval on every keystroke
-  const localNotesRef = useRef(localNotes);
   useEffect(() => {
     localNotesRef.current = localNotes;
   }, [localNotes]);
@@ -57,15 +60,18 @@ export function useNotebookAutosave(
       }
     };
 
-    window.addEventListener('beforeunload', handleSaveOnExit);
-    window.addEventListener('visibilitychange', () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         handleSaveOnExit();
       }
-    });
+    };
+
+    window.addEventListener('beforeunload', handleSaveOnExit);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('beforeunload', handleSaveOnExit);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       // Save on unmount (e.g., tab changes or switching projects)
       handleSaveOnExit();
     };

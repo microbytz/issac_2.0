@@ -292,7 +292,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
   }, [rawHierarchyData, collapsedNodeIds]);
 
   // Handle Collapsing/Expanding individual nodes
-  const handleToggleCollapse = (nodeId: string, e: React.MouseEvent) => {
+  const handleToggleCollapse = (nodeId: string, e: Pick<Event, 'stopPropagation'>) => {
     e.stopPropagation();
     setCollapsedNodeIds(prev => {
       const next = new Set(prev);
