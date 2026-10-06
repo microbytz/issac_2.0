@@ -16,6 +16,7 @@ export interface SearchTagFilterBarProps {
   onClearTags: () => void;
   onToggleLogic: () => void;
   isLight?: boolean;
+  onClose?: () => void;
 }
 
 export const SearchTagFilterBar: React.FC<SearchTagFilterBarProps> = ({
@@ -28,6 +29,7 @@ export const SearchTagFilterBar: React.FC<SearchTagFilterBarProps> = ({
   onClearTags,
   onToggleLogic,
   isLight = false,
+  onClose,
 }) => {
   const [filterSearch, setFilterSearch] = useState('');
 
@@ -47,13 +49,13 @@ export const SearchTagFilterBar: React.FC<SearchTagFilterBarProps> = ({
       id="search-tag-filter-bar"
       className={`rounded-2xl border p-3.5 sm:p-4 transition-all duration-200 ${
         isLight
-          ? 'bg-slate-50/90 border-slate-200 shadow-xs'
-          : 'bg-[#070e24]/60 border-slate-800 shadow-lg'
+          ? 'bg-slate-50/95 border-slate-200 shadow-xs'
+          : 'bg-[#070e24]/90 border-slate-800 shadow-lg'
       }`}
     >
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-700/40">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center justify-between sm:justify-start gap-2 flex-wrap">
           <div className="flex items-center gap-1.5">
             <div className={`p-1.5 rounded-lg ${isLight ? 'bg-blue-100 text-blue-700' : 'bg-blue-950/70 text-blue-400 border border-blue-500/20'}`}>
               <Tags className="w-3.5 h-3.5" />
@@ -66,7 +68,7 @@ export const SearchTagFilterBar: React.FC<SearchTagFilterBarProps> = ({
           <span className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md ${
             isLight ? 'bg-slate-200/80 text-slate-600' : 'bg-slate-800/80 text-slate-400'
           }`}>
-            {isAnyTagActive ? `${filteredResultsCount} of ${totalResultsCount} visible` : `${availableTags.length} tags available`}
+            {isAnyTagActive ? `${filteredResultsCount} of ${totalResultsCount} visible` : `${availableTags.length} tags`}
           </span>
 
           {isAnyTagActive && (
@@ -76,8 +78,8 @@ export const SearchTagFilterBar: React.FC<SearchTagFilterBarProps> = ({
           )}
         </div>
 
-        {/* Controls: Logic switcher + Clear button */}
-        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+        {/* Controls: Logic switcher + Clear button + Optional Close */}
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
           {selectedTags.length > 1 && (
             <button
               type="button"
@@ -95,7 +97,7 @@ export const SearchTagFilterBar: React.FC<SearchTagFilterBarProps> = ({
             >
               <SlidersHorizontal className="w-3 h-3 text-blue-400" />
               <span>Logic: <strong className="text-amber-400 uppercase">{filterLogic}</strong></span>
-              <span className="text-[9px] opacity-75">({filterLogic === 'all' ? 'All match' : 'Any match'})</span>
+              <span className="text-[9px] opacity-75">({filterLogic === 'all' ? 'All' : 'Any'})</span>
             </button>
           )}
 
@@ -110,7 +112,23 @@ export const SearchTagFilterBar: React.FC<SearchTagFilterBarProps> = ({
               }`}
             >
               <X className="w-3 h-3" />
-              <span>Reset Tags</span>
+              <span>Reset</span>
+            </button>
+          )}
+
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className={`p-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                isLight
+                  ? 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                  : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+              }`}
+              title="Close Tag Filter Panel"
+              aria-label="Close tag filters"
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>

@@ -195,8 +195,287 @@ export const OFFLINE_DICTIONARY: Record<string, DictionaryEntry> = {
     example: 'Isaac Newton described gravity as a universal force connecting celestial and terrestrial motion.',
     synonyms: ['gravitation', 'attraction', 'seriousness', 'severity', 'solemnity'],
     antonyms: ['levity', 'frivolity', 'weightlessness']
+  },
+  epiphany: {
+    word: 'epiphany',
+    phonetic: '/ɪˈpɪf.ən.i/',
+    partOfSpeech: 'noun',
+    definition: 'A moment of sudden and great revelation or realization.',
+    definitions: [
+      'A moment of sudden and profound understanding or insight.',
+      'A manifestation of a divine or supernatural being.'
+    ],
+    example: 'While debugging the code, she had a sudden epiphany that solved the race condition.',
+    synonyms: ['revelation', 'insight', 'illumination', 'awakening', 'realization'],
+    antonyms: []
+  },
+  nostalgia: {
+    word: 'nostalgia',
+    phonetic: '/nɒsˈtæl.dʒə/',
+    partOfSpeech: 'noun',
+    definition: 'A sentimental longing or wistful affection for the past, typically for a period or place with happy personal associations.',
+    definitions: [
+      'A sentimental yearning for the happiness of a former place or time.',
+      'Something that evokes nostalgic feelings.'
+    ],
+    example: 'Listening to 90s music filled him with fond nostalgia for his childhood.',
+    synonyms: ['reminiscence', 'longing', 'wistfulness', 'yearning', 'homesickness'],
+    antonyms: []
+  },
+  catharsis: {
+    word: 'catharsis',
+    phonetic: '/kəˈθɑː.sɪs/',
+    partOfSpeech: 'noun',
+    definition: 'The process of releasing, and thereby providing relief from, strong or repressed emotions.',
+    definitions: [
+      'The purging of the emotions or relieving of emotional tensions, especially through art or music.',
+      'In psychology, emotional release through recollection of unconscious conflict.'
+    ],
+    example: 'Writing poetry provided a powerful catharsis after a difficult and stressful week.',
+    synonyms: ['purging', 'release', 'cleansing', 'relief', 'liberation'],
+    antonyms: ['repression', 'suppression']
+  },
+  empathy: {
+    word: 'empathy',
+    phonetic: '/ˈɛm.pə.θi/',
+    partOfSpeech: 'noun',
+    definition: 'The ability to understand and share the feelings of another.',
+    definitions: [
+      'The psychological capacity to understand or feel what another person is experiencing from within their frame of reference.',
+      'Vicarious experiencing of the feelings, thoughts, or attitudes of another.'
+    ],
+    example: 'A great leader listens with genuine empathy to the concerns of their team.',
+    synonyms: ['compassion', 'understanding', 'sensitivity', 'fellow feeling', 'sympathy'],
+    antonyms: ['indifference', 'apathy', 'callousness']
+  },
+  lucid: {
+    word: 'lucid',
+    phonetic: '/ˈluː.sɪd/',
+    partOfSpeech: 'adjective',
+    definition: 'Expressed clearly; easy to understand; showing ability to think clearly.',
+    definitions: [
+      'Expressed clearly; easy to understand; intelligible.',
+      'Having full use of one\'s faculties; clearheaded.',
+      'Shining or luminous.'
+    ],
+    example: 'The professor gave a remarkably lucid explanation of quantum entanglement.',
+    synonyms: ['clear', 'coherent', 'comprehensible', 'transparent', 'intelligible'],
+    antonyms: ['obscure', 'confusing', 'vague', 'murky']
+  },
+  ambiguous: {
+    word: 'ambiguous',
+    phonetic: '/æmˈbɪɡ.ju.əs/',
+    partOfSpeech: 'adjective',
+    definition: 'Open to more than one interpretation; having a double meaning.',
+    definitions: [
+      'Open to or having several possible meanings or interpretations.',
+      'Of doubtful or uncertain nature; dubious; indistinct.'
+    ],
+    example: 'The politician\'s ambiguous statement left voters confused about his true intentions.',
+    synonyms: ['equivocal', 'unclear', 'vague', 'uncertain', 'cryptic'],
+    antonyms: ['unambiguous', 'clear', 'definite', 'explicit']
+  },
+  candid: {
+    word: 'candid',
+    phonetic: '/ˈkæn.dɪd/',
+    partOfSpeech: 'adjective',
+    definition: 'Truthful and straightforward; frank; informal or unposed.',
+    definitions: [
+      'Frank; outspoken; open and sincere in speech or expression.',
+      'Informal or unposed, as a photograph.'
+    ],
+    example: 'I appreciated her candid feedback during the peer review session.',
+    synonyms: ['frank', 'honest', 'forthright', 'sincere', 'unvarnished'],
+    antonyms: ['secretive', 'guarded', 'insincere', 'evasive']
+  },
+  benevolent: {
+    word: 'benevolent',
+    phonetic: '/bəˈnɛv.əl.ənt/',
+    partOfSpeech: 'adjective',
+    definition: 'Well meaning and kindly; serving a charitable rather than a profit-making purpose.',
+    definitions: [
+      'Characterized by or expressing goodwill or kindly feelings.',
+      'Desiring to help others; charitable.'
+    ],
+    example: 'The benevolent benefactor donated millions to fund scientific research.',
+    synonyms: ['kind', 'generous', 'altruistic', 'magnanimous', 'philanthropic'],
+    antonyms: ['malevolent', 'unkind', 'spiteful', 'malicious']
+  },
+  metaphor: {
+    word: 'metaphor',
+    phonetic: '/ˈmɛt.ə.fɔːr/',
+    partOfSpeech: 'noun',
+    definition: 'A figure of speech in which a word or phrase is applied to an object or action to which it is not literally applicable.',
+    definitions: [
+      'A figure of speech comparing two distinct things directly without using "like" or "as".',
+      'Something regarded as representative or symbolic of something else.'
+    ],
+    example: 'The phrase "time is a thief" is a classic literary metaphor.',
+    synonyms: ['figure of speech', 'analogy', 'symbol', 'allegory', 'emblem'],
+    antonyms: []
+  },
+  irony: {
+    word: 'irony',
+    phonetic: '/ˈaɪ.rə.ni/',
+    partOfSpeech: 'noun',
+    definition: 'The expression of one\'s meaning by using language that normally signifies the opposite, typically for humorous or emphatic effect.',
+    definitions: [
+      'The use of words conveying a meaning that is the opposite of its literal meaning.',
+      'A state of affairs or an event that seems deliberately contrary to what one expects.'
+    ],
+    example: 'The irony was that the fire station caught fire while the firefighters were out.',
+    synonyms: ['sarcasm', 'paradox', 'incongruity', 'satire', 'mockery'],
+    antonyms: ['sincerity', 'literalness']
+  },
+  solitude: {
+    word: 'solitude',
+    phonetic: '/ˈsɒl.ɪ.tjuːd/',
+    partOfSpeech: 'noun',
+    definition: 'The state or situation of being alone, especially when peaceful and pleasant.',
+    definitions: [
+      'The state of being alone, especially when finding peace or quiet.',
+      'A lonely, sequestered, or secluded place.'
+    ],
+    example: 'She retreated to the mountains to enjoy the peaceful solitude and finish her novel.',
+    synonyms: ['isolation', 'seclusion', 'peace and quiet', 'loneliness', 'privacy'],
+    antonyms: ['company', 'society', 'crowd']
+  },
+  melancholy: {
+    word: 'melancholy',
+    phonetic: '/ˈmɛl.ən.kɒl.i/',
+    partOfSpeech: 'noun',
+    definition: 'A feeling of pensive sadness, typically with no obvious cause.',
+    definitions: [
+      'A gloomy state of mind, especially when habitual or prolonged; depression.',
+      'Sober thoughtfulness; pensiveness.'
+    ],
+    example: 'The rainy autumn afternoon cast a gentle melancholy over the quiet streets.',
+    synonyms: ['sadness', 'sorrow', 'pensiveness', 'gloom', 'dejection'],
+    antonyms: ['happiness', 'cheerfulness', 'joy']
+  },
+  petrichor: {
+    word: 'petrichor',
+    phonetic: '/ˈpɛt.rɪ.kɔːr/',
+    partOfSpeech: 'noun',
+    definition: 'A pleasant smell that frequently accompanies the first rain after a long period of warm, dry weather.',
+    definitions: [
+      'A distinctive scent produced when rain falls on dry soil or warm earth.',
+      'The earthy aroma caused by geosmin and plant oils released by rain droplets.'
+    ],
+    example: 'Stepping outside after the summer thunderstorm, the air was rich with petrichor.',
+    synonyms: ['earthy scent', 'rain aroma'],
+    antonyms: []
+  },
+  quixotic: {
+    word: 'quixotic',
+    phonetic: '/kwɪkˈsɒt.ɪk/',
+    partOfSpeech: 'adjective',
+    definition: 'Exceedingly idealistic; unrealistic and impractical.',
+    definitions: [
+      'Extravagantly chivalrous or romantic; visionary, impractical, or impracticable.',
+      'Like Don Quixote in pursuing romantic ideals.'
+    ],
+    example: 'Launching a competitor to global tech monopolies seemed like a quixotic quest.',
+    synonyms: ['idealistic', 'impractical', 'romantic', 'visionary', 'unrealistic'],
+    antonyms: ['practical', 'pragmatic', 'realistic']
+  },
+  syntax: {
+    word: 'syntax',
+    phonetic: '/ˈsɪn.tæks/',
+    partOfSpeech: 'noun',
+    definition: 'The arrangement of words and phrases to create well-formed sentences in a language, or rules governing the structure of programming statements.',
+    definitions: [
+      'The study of the rules for the formation of grammatical sentences in a language.',
+      'In computer science, the rules governing the structure of valid statements in a programming language.'
+    ],
+    example: 'A single missing semicolon caused a syntax error in the JavaScript code.',
+    synonyms: ['grammar', 'structure', 'rules', 'order', 'organization'],
+    antonyms: []
+  },
+  semantics: {
+    word: 'semantics',
+    phonetic: '/sɪˈmæn.tɪks/',
+    partOfSpeech: 'noun',
+    definition: 'The branch of linguistics and logic concerned with meaning, or the interpretation of symbols and programming constructs.',
+    definitions: [
+      'The study of meaning in language, including the relationships of words, phrases, and symbols.',
+      'In computing, the fundamental meaning or operational behavior of code statements.'
+    ],
+    example: 'HTML5 semantic elements clarify the structure and semantics of a document for screen readers.',
+    synonyms: ['meaning', 'signification', 'interpretation', 'connotation'],
+    antonyms: []
+  },
+  synchronous: {
+    word: 'synchronous',
+    phonetic: '/ˈsɪŋ.krə.nəs/',
+    partOfSpeech: 'adjective',
+    definition: 'Existing or occurring at the same time; executing in sequence where operations wait for prior tasks to complete.',
+    definitions: [
+      'Occurring or existing at the same time or rate.',
+      'In computing, recurring with a regular or predictable time interval, or executing sequentially.'
+    ],
+    example: 'Synchronous network requests block user interface interactions until the response arrives.',
+    synonyms: ['simultaneous', 'concurrent', 'coincident', 'synchronized'],
+    antonyms: ['asynchronous', 'independent']
+  },
+  asynchronous: {
+    word: 'asynchronous',
+    phonetic: '/eɪˈsɪŋ.krə.nəs/',
+    partOfSpeech: 'adjective',
+    definition: 'Not occurring at the same time; in computing, executing operations in the background without blocking the main execution thread.',
+    definitions: [
+      'Not occurring at the same time or rate.',
+      'In computing, operations executed independently of the main program flow, allowing non-blocking I/O.'
+    ],
+    example: 'Using async/await in JavaScript allows asynchronous file downloads without freezing the browser.',
+    synonyms: ['non-blocking', 'independent', 'decoupled', 'concurrent'],
+    antonyms: ['synchronous', 'blocking']
+  },
+  latency: {
+    word: 'latency',
+    phonetic: '/ˈleɪ.tən.si/',
+    partOfSpeech: 'noun',
+    definition: 'The time that elapses between a stimulus and the response to it, or delay in data transmission over a network.',
+    definitions: [
+      'The state of being latent, hidden, or dormant.',
+      'In computer networks, the round-trip delay time taken for data packets to reach their destination.'
+    ],
+    example: 'Edge computing minimizes latency by processing requests geographically closer to users.',
+    synonyms: ['delay', 'lag', 'turnaround time', 'pause', 'dormancy'],
+    antonyms: ['instantaneity', 'promptness']
+  },
+  concurrency: {
+    word: 'concurrency',
+    phonetic: '/kənˈkʌr.ən.si/',
+    partOfSpeech: 'noun',
+    definition: 'The ability of different parts or units of a program, algorithm, or problem to be executed out-of-order or in partial order without affecting the final outcome.',
+    definitions: [
+      'Agreement, concurrence, or simultaneous occurrence.',
+      'In computing, the execution of multiple instruction sequences simultaneously.'
+    ],
+    example: 'Go and Elixir are renowned for handling massive network concurrency with lightweight threads.',
+    synonyms: ['simultaneity', 'coexistence', 'parallelism', 'multitasking'],
+    antonyms: ['serialism', 'sequence']
   }
 };
+
+// In-memory runtime session cache for instantaneous retrieval
+export const DICTIONARY_SESSION_CACHE = new Map<string, DictionaryEntry>();
+
+/**
+ * Synchronously checks if a word is immediately available in offline dictionary or cache.
+ * Returns in 0ms!
+ */
+export function getImmediateDictionaryEntry(word: string): DictionaryEntry | null {
+  const norm = word.trim().toLowerCase();
+  if (OFFLINE_DICTIONARY[norm]) {
+    return OFFLINE_DICTIONARY[norm];
+  }
+  if (DICTIONARY_SESSION_CACHE.has(norm)) {
+    return DICTIONARY_SESSION_CACHE.get(norm)!;
+  }
+  return null;
+}
 
 /**
  * Extracts a target dictionary word from a wide range of user search phrases.
@@ -308,7 +587,7 @@ export async function lookupDictionaryWord(rawWord: string, signal?: AbortSignal
           }
         });
 
-        return {
+        const resultEntry: DictionaryEntry = {
           word: entry.word || word,
           phonetic: entry.phonetic || entry.phonetics?.find((p: any) => p.text)?.text || `/${word}/`,
           partOfSpeech: primaryMeaning?.partOfSpeech || 'noun',
@@ -318,6 +597,8 @@ export async function lookupDictionaryWord(rawWord: string, signal?: AbortSignal
           synonyms: allSynonyms.slice(0, 6),
           antonyms: allAntonyms.slice(0, 4)
         };
+        DICTIONARY_SESSION_CACHE.set(word, resultEntry);
+        return resultEntry;
       }
     }
   } catch (err: any) {

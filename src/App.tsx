@@ -1954,6 +1954,8 @@ export default function App() {
   // Dedicated Search Tag Filter States
   const [selectedSearchTags, setSelectedSearchTags] = useState<string[]>([]);
   const [searchTagFilterLogic, setSearchTagFilterLogic] = useState<'any' | 'all'>('any');
+  const [showTagFilterDrawer, setShowTagFilterDrawer] = useState<boolean>(false);
+  const [showResultsTools, setShowResultsTools] = useState<boolean>(false);
 
   const handleToggleSearchTag = (tag: string) => {
     const clean = tag.trim().toLowerCase();
@@ -7162,98 +7164,111 @@ export default function App() {
       <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-zinc-500/10 rounded-full blur-[120px] pointer-events-none transition-opacity duration-300 ${isLight ? 'opacity-0' : 'opacity-100'}`} />
       <div className={`absolute top-[20%] right-[10%] w-[250px] h-[250px] bg-zinc-500/10 rounded-full blur-[80px] pointer-events-none transition-opacity duration-300 ${isLight ? 'opacity-0' : 'opacity-100'}`} />
 
-      {/* Top Utility Bar: Quick Jump (Left) & Settings + Theme Toggle (Right) */}
-      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6 flex items-center justify-between gap-2 relative z-50 animate-fade-in">
-        {/* Quick Jump / Command Palette Trigger */}
-        <button
-          id="global-quick-jump-btn"
-          onClick={() => {
-            setShowCommandPalette(true);
-            setPaletteQuery('');
-            setSelectedPaletteIndex(0);
-          }}
-          type="button"
-          className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 ${
-            isLight
-              ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
-              : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
-          }`}
-          title="Open Command Palette (⌘K or Ctrl+K)"
-        >
-          <Command className="w-4 h-4 text-blue-500" />
-          <span className="hidden sm:inline">Quick Jump</span>
-          <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono leading-none ${isLight ? 'bg-slate-100 text-slate-500' : 'bg-slate-800 text-slate-400'}`}>
-            ⌘K
-          </span>
-        </button>
+      {/* Responsive Unified Header */}
+      <header className="w-full relative z-30 pt-3 sm:pt-5 pb-3 px-3 sm:px-6">
+        <div className="w-full max-w-7xl mx-auto flex flex-col gap-3 sm:gap-4">
+          {/* Top Bar: Title (Left), Desktop-only Quick Jump (Center), Settings & Theme (Right) */}
+          <div className="w-full flex items-center justify-between gap-2">
+            {/* Title / Brand Header - Left aligned, never overlaps with controls */}
+            <div
+              onClick={() => { setActiveTab('search'); setSearchQuery(''); setSearchResults(DEFAULT_PAGES); }}
+              className="flex items-center gap-2 cursor-pointer select-none group shrink-0 min-w-0"
+              role="button"
+              tabIndex={0}
+            >
+              <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-black text-xs sm:text-sm tracking-wider transition-transform group-hover:scale-105 shrink-0 ${
+                isLight 
+                  ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm'
+                  : 'bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+              }`}>
+                IS
+              </div>
+              <h1 className={`text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight bg-clip-text text-transparent font-sans transition-all duration-300 truncate ${
+                isLight
+                  ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700'
+                  : 'bg-gradient-to-r from-white via-zinc-200 to-zinc-400'
+              }`}>
+                Isaac Search
+              </h1>
+            </div>
 
-        {/* Top Right Controls: Settings & Theme Toggle */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            id="global-settings-btn"
-            onClick={() => setShowSettingsModal(true)}
-            type="button"
-            className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold ${
-              isLight
-                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
-                : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
-            }`}
-            title="Open Settings & Privacy (⌘,)"
-          >
-            <Settings className="w-4 h-4 text-blue-500" />
-            <span className="hidden sm:inline">Settings</span>
-            {clearHistoryOnExit && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Clear History on Exit active" />
-            )}
-          </button>
+            {/* Desktop-only Quick Jump / Command Palette Trigger - hidden on mobile */}
+            <button
+              id="global-quick-jump-btn"
+              onClick={() => {
+                setShowCommandPalette(true);
+                setPaletteQuery('');
+                setSelectedPaletteIndex(0);
+              }}
+              type="button"
+              className={`hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 ${
+                isLight
+                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
+                  : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
+              }`}
+              title="Open Command Palette (⌘K or Ctrl+K)"
+            >
+              <Command className="w-4 h-4 text-blue-500" />
+              <span>Quick Jump</span>
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono leading-none ${isLight ? 'bg-slate-100 text-slate-500' : 'bg-slate-800 text-slate-400'}`}>
+                ⌘K
+              </span>
+            </button>
 
-          <button
-            id="global-theme-toggle-btn"
-            onClick={toggleTheme}
-            type="button"
-            className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold ${
-              isLight
-                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
-                : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
-            }`}
-            title={isLight ? "Switch to Dark Mode" : "Switch to High-Contrast Light Mode"}
-          >
-            {isLight ? (
-              <>
-                <Moon className="w-4 h-4 text-slate-700" />
-                <span>Dark Mode</span>
-              </>
-            ) : (
-              <>
-                <Sun className="w-4 h-4 text-amber-400" />
-                <span>High-Contrast Light</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
+            {/* Top Right Controls: Settings & Theme Toggle - compact and touch-friendly */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <button
+                id="global-settings-btn"
+                onClick={() => setShowSettingsModal(true)}
+                type="button"
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 min-h-[38px] ${
+                  isLight
+                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
+                    : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
+                }`}
+                title="Open Settings & Privacy"
+                aria-label="Settings"
+              >
+                <Settings className="w-4 h-4 text-blue-500 shrink-0" />
+                <span className="hidden sm:inline">Settings</span>
+                {clearHistoryOnExit && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Clear History on Exit active" />
+                )}
+              </button>
 
-      {/* Header Centered Layout */}
-      <header className="pt-4 pb-6 sm:py-6 px-6 text-center relative z-10">
-        <div className="max-w-3xl mx-auto flex flex-col items-center gap-6">
-          
-          {/* Brand Logo and Title */}
-          <div className="flex flex-col items-center gap-1 cursor-pointer select-none group" onClick={() => { setActiveTab('search'); setSearchQuery(''); setSearchResults(DEFAULT_PAGES); }}>
-            <h1 className={`text-4xl sm:text-5xl font-extrabold tracking-tight bg-clip-text text-transparent font-sans transition-all duration-300 ${
-              isLight
-                ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 drop-shadow-xs'
-                : 'bg-gradient-to-r from-white via-zinc-200 to-zinc-400 drop-shadow-[0_0_15px_rgba(161,161,170,0.25)]'
-            }`}>
-              Isaac Search
-            </h1>
+              <button
+                id="global-theme-toggle-btn"
+                onClick={toggleTheme}
+                type="button"
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 min-h-[38px] ${
+                  isLight
+                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
+                    : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
+                }`}
+                title={isLight ? "Switch to Dark Mode" : "Switch to High-Contrast Light Mode"}
+                aria-label={isLight ? "Switch to Dark Mode" : "Switch to High-Contrast Light Mode"}
+              >
+                {isLight ? (
+                  <>
+                    <Moon className="w-4 h-4 text-slate-700 shrink-0" />
+                    <span className="hidden sm:inline">Dark</span>
+                  </>
+                ) : (
+                  <>
+                    <Sun className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span className="hidden sm:inline">Light</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Navigation Controls (Circular and Rounder Cards) */}
-          <nav className="flex items-center justify-start sm:justify-center gap-2.5 sm:gap-3.5 mt-1 w-full max-w-full overflow-x-auto no-scrollbar pb-2 sm:pb-0 px-3 sm:px-0">
+          <nav className="flex items-center justify-start sm:justify-center gap-2 sm:gap-3.5 mt-1 w-full max-w-full overflow-x-auto no-scrollbar pb-2 sm:pb-0 px-2 sm:px-0">
             <button 
               id="nav-search-btn"
               onClick={() => setActiveTab('search')}
-              className={`p-2.5 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1.5 w-20 h-20 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
+              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
                 activeTab === 'search' 
                   ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
                   : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -7267,7 +7282,7 @@ export default function App() {
             <button 
               id="nav-fireplexity-btn"
               onClick={() => setActiveTab('fireplexity')}
-              className={`p-2.5 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1.5 w-20 h-20 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
+              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
                 activeTab === 'fireplexity' 
                   ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
                   : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -7284,7 +7299,7 @@ export default function App() {
             <button 
               id="nav-crawler-btn"
               onClick={() => setActiveTab('crawler')}
-              className={`p-2.5 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1.5 w-20 h-20 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
+              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
                 activeTab === 'crawler' 
                   ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
                   : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -7298,7 +7313,7 @@ export default function App() {
             <button 
               id="nav-graph-btn"
               onClick={() => setActiveTab('graph')}
-              className={`p-2.5 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1.5 w-20 h-20 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
+              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
                 activeTab === 'graph' 
                   ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
                   : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -7312,7 +7327,7 @@ export default function App() {
             <button 
               id="nav-collections-btn"
               onClick={() => setActiveTab('collections')}
-              className={`p-2.5 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1.5 w-20 h-20 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
+              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
                 activeTab === 'collections' 
                   ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
                   : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -7331,7 +7346,7 @@ export default function App() {
             <button 
               id="nav-projects-btn"
               onClick={() => setActiveTab('projects')}
-              className={`p-2.5 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1.5 w-20 h-20 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
+              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
                 activeTab === 'projects' 
                   ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
                   : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -7666,8 +7681,8 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Keyboard Nav Footer */}
-                    <div className={`px-4 py-1.5 flex items-center justify-between text-[10px] font-mono select-none ${
+                    {/* Keyboard Nav Footer - Desktop only */}
+                    <div className={`hidden sm:flex px-4 py-1.5 items-center justify-between text-[10px] font-mono select-none ${
                       isLight ? 'bg-slate-50 text-slate-500 border-t border-slate-100' : 'bg-slate-950/70 text-slate-500 border-t border-slate-800/60'
                     }`}>
                       <div className="flex items-center gap-3">
@@ -8124,274 +8139,218 @@ export default function App() {
             {/* Conditional Results Segments */}
             {searchMode === 'all' ? (
               /* Search Results Segment */
-              <div className="flex flex-col gap-6 mt-2">
-                {/* Dedicated Tag Filter Bar */}
+              <div className="flex flex-col gap-3 mt-1">
+                {/* Search & Filter Compact Controls Bar */}
                 {searchResults.length > 0 && (
-                  <SearchTagFilterBar
-                    availableTags={availableSearchTags}
-                    selectedTags={selectedSearchTags}
-                    filterLogic={searchTagFilterLogic}
-                    totalResultsCount={searchResults.length}
-                    filteredResultsCount={filteredSearchResults.length}
-                    onToggleTag={handleToggleSearchTag}
-                    onClearTags={handleClearSearchTags}
-                    onToggleLogic={handleToggleSearchTagLogic}
-                    isLight={isLight}
-                  />
-                )}
-
-                {/* Search within results input bar */}
-                {searchResults.length > 0 && (
-                  <div className="bg-[#070e24]/40 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-4 justify-between transition-all duration-300">
-                    <div className="flex flex-col gap-0.5 shrink-0">
-                      <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5 font-sans">
-                        <Sparkles className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                        Search within results
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest font-bold">
-                        Detailed Inner Filter
-                      </span>
-                    </div>
-
-                    <div className="relative flex-1">
-                      <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-                        <Search className="w-4 h-4 text-slate-500" />
-                      </div>
-                      <input
-                        type="text"
-                        placeholder="Type keywords to drill down on titles, snippets or URLs shown below..."
-                        value={searchWithinQuery}
-                        onChange={(e) => setSearchWithinQuery(e.target.value)}
-                        className="w-full pl-9 pr-16 py-2.5 bg-[#030712] border border-slate-800 focus:border-blue-500 rounded-xl text-xs text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-blue-950 transition-all font-sans"
-                      />
-                      {searchWithinQuery && (
-                        <button
-                          type="button"
-                          onClick={() => setSearchWithinQuery('')}
-                          className="absolute inset-y-0 right-3 flex items-center text-red-400 hover:text-red-300 transition-colors text-xs font-mono font-sans font-bold pr-1"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest font-bold">
-                        {searchWithinQuery.trim() ? "Matches" : "Total View"}
-                      </span>
-                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-blue-950/40 border border-blue-500/20 text-blue-400">
-                        {filteredSearchResults.length} of {searchResults.length}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Quick Sorting Pills Toolbar */}
-                <div className="flex items-center justify-between flex-wrap gap-2 pt-1 pb-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold flex items-center gap-1 mr-1">
-                      <Sliders className="w-3 h-3 text-blue-400" />
-                      Sort:
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateSortBy('relevance')}
-                      className={`px-3 py-1 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        sortBy === 'relevance'
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-950/60 border border-blue-400'
-                          : 'bg-[#070e24]/60 text-slate-400 hover:text-slate-200 border border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <Target className="w-3.5 h-3.5 text-amber-300" />
-                      <span>Relevance (BM25)</span>
-                      {sortBy === 'relevance' && (
-                        <span className="text-[9px] bg-blue-700/80 text-blue-200 px-1 py-0.2 rounded font-mono">3.0x Title / 1.5x Snippet</span>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateSortBy('likes_desc')}
-                      className={`px-3 py-1 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        sortBy === 'likes_desc'
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-950/60 border border-blue-400'
-                          : 'bg-[#070e24]/60 text-slate-400 hover:text-slate-200 border border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <ThumbsUp className="w-3.5 h-3.5" />
-                      <span>Likes</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateSortBy('date_desc')}
-                      className={`px-3 py-1 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        sortBy === 'date_desc'
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-950/60 border border-blue-400'
-                          : 'bg-[#070e24]/60 text-slate-400 hover:text-slate-200 border border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>Newest</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateSortBy('backlinks_desc')}
-                      className={`px-3 py-1 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        sortBy === 'backlinks_desc'
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-950/60 border border-blue-400'
-                          : 'bg-[#070e24]/60 text-slate-400 hover:text-slate-200 border border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <LinkIcon className="w-3.5 h-3.5" />
-                      <span>Backlinks</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateSortBy('title_asc')}
-                      className={`px-3 py-1 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        sortBy === 'title_asc'
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-950/60 border border-blue-400'
-                          : 'bg-[#070e24]/60 text-slate-400 hover:text-slate-200 border border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <span>A-Z</span>
-                    </button>
-                  </div>
-
-                  {/* Whoosh Field Weights Info Chip */}
-                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400 bg-blue-950/30 border border-blue-900/40 px-2.5 py-1 rounded-xl">
-                    <Sparkles className="w-3 h-3 text-blue-400 shrink-0" />
-                    <span>Whoosh Weights: <strong className="text-amber-300">Title 3.0x</strong> • <strong className="text-emerald-300">Snippet 1.5x</strong> • <strong className="text-blue-300">Content 1.0x</strong></span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-slate-500 font-mono border-b border-slate-800/60 pb-3 flex-wrap gap-3">
-                  {searchWithinQuery.trim() || selectedSearchTags.length > 0 ? (
-                    <span className="text-blue-400 font-bold flex items-center gap-1.5 flex-wrap">
-                      <span>Showing {filteredSearchResults.length} filtered {filteredSearchResults.length === 1 ? 'entry' : 'entries'} of {searchResults.length} matches</span>
-                      {selectedSearchTags.length > 0 && (
-                        <span className="text-xs font-mono font-normal text-slate-400">
-                          (tags: {selectedSearchTags.map(t => `#${t}`).join(', ')})
+                  <div className="flex flex-col gap-2 pt-1 pb-1">
+                    <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
+                      {/* Left: Result count & active status */}
+                      <div className="flex items-center gap-2 flex-wrap text-slate-400">
+                        <span className="font-bold text-slate-200">
+                          About {filteredSearchResults.length} {filteredSearchResults.length === 1 ? 'result' : 'results'}
                         </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2 flex-wrap">
-                      <span>About {searchResults.length} results</span>
-                      {lastSearchFallbackMeta?.triggered ? (
-                        <span className="text-emerald-400 font-bold">
-                          ({lastSearchFallbackMeta.firestoreCount} Firestore + {lastSearchFallbackMeta.fallbackCount} SearXNG Fallback)
-                        </span>
-                      ) : (
-                        <span>indexed in Firestore</span>
-                      )}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      disabled={filteredSearchResults.length === 0}
-                      onClick={() => {
-                        exportSearchResultsToPDF(searchQuery, filteredSearchResults);
-                        showToast(`Downloaded PDF with ${filteredSearchResults.length} results`, "success");
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-300 hover:text-white hover:bg-blue-500/25 disabled:opacity-40 disabled:pointer-events-none transition-all font-sans text-[11px] font-bold active:scale-95 cursor-pointer shadow-md"
-                      title="Download current search results as a structured PDF"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download Results</span>
-                    </button>
-                    <span>Showing {Math.min(visibleResultsCount, filteredSearchResults.length)} of {filteredSearchResults.length} • Page {currentPage}</span>
-                  </div>
-                </div>
-
-                {/* SearXNG Read-Through Fallback & Auto-Indexing Control Strip */}
-                <div className="bg-[#070e24]/70 border border-slate-800/90 rounded-2xl p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                  <div className="flex items-start sm:items-center gap-2.5">
-                    <div className={`p-2 rounded-xl border shrink-0 ${
-                      lastSearchFallbackMeta?.triggered
-                        ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-400'
-                        : 'bg-blue-950/40 border-blue-500/30 text-blue-400'
-                    }`}>
-                      <Globe className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-bold text-slate-200 font-sans">
-                          Firestore → SearXNG Read-Through Fallback
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase bg-emerald-950/60 text-emerald-300 border border-emerald-500/30">
-                          $0 Free Metasearch
-                        </span>
-                        {lastSearchFallbackMeta?.triggered && lastSearchFallbackMeta.provider && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono text-blue-300 bg-blue-950/60 border border-blue-500/30">
-                            Active: {lastSearchFallbackMeta.provider}
+                        {selectedSearchTags.length > 0 && (
+                          <span className="text-[10px] text-blue-400 bg-blue-950/40 border border-blue-500/30 px-1.5 py-0.5 rounded-full font-bold">
+                            {selectedSearchTags.length} tag{selectedSearchTags.length === 1 ? '' : 's'} active
+                          </span>
+                        )}
+                        {lastSearchFallbackMeta?.triggered && (
+                          <span className="text-[10px] text-emerald-400 font-bold hidden sm:inline">
+                            (+{lastSearchFallbackMeta.fallbackCount} web results)
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-400 font-sans">
-                        {lastSearchFallbackMeta?.triggered ? (
-                          <>
-                            Firestore had <strong className="text-slate-200">{lastSearchFallbackMeta.firestoreCount}</strong> local match{lastSearchFallbackMeta.firestoreCount === 1 ? '' : 'es'} for <strong className="text-slate-200">"{searchQuery || 'query'}"</strong> — fetched <strong className="text-emerald-400">{lastSearchFallbackMeta.fallbackCount} live web results</strong> via SearXNG
-                            {lastSearchFallbackMeta.autoIndexedCount > 0 && (
-                              <> and <strong className="text-blue-300">auto-indexed {lastSearchFallbackMeta.autoIndexedCount} new page{lastSearchFallbackMeta.autoIndexedCount === 1 ? '' : 's'}</strong> into your Firestore catalog &amp; Crawler Seeds</>
-                            )}.
-                          </>
-                        ) : (
-                          <>
-                            When your crawlers haven't indexed a topic yet (&lt;{searxngMinResults} Firestore matches), SearXNG automatically fetches live web results and seeds your index.
-                          </>
+
+                      {/* Right: Controls (Sort, Tag Filter Button, Refine Tools Toggle, Download PDF) */}
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                        {/* Sort Control: Compact select that never overflows */}
+                        <div className="flex items-center gap-1 bg-[#070e24]/70 border border-slate-800 rounded-xl px-2.5 py-1 text-slate-300">
+                          <Sliders className="w-3 h-3 text-blue-400 shrink-0" />
+                          <select
+                            value={sortBy}
+                            onChange={(e) => handleUpdateSortBy(e.target.value as any)}
+                            className="bg-transparent border-none text-xs text-slate-300 outline-none font-sans cursor-pointer pr-1"
+                            title="Sort search results"
+                            aria-label="Sort search results"
+                          >
+                            <option value="relevance" className="bg-[#091332]">Relevance (BM25)</option>
+                            <option value="likes_desc" className="bg-[#091332]">Likes: High to Low</option>
+                            <option value="date_desc" className="bg-[#091332]">Newest First</option>
+                            <option value="backlinks_desc" className="bg-[#091332]">Backlinks: High to Low</option>
+                            <option value="title_asc" className="bg-[#091332]">A to Z</option>
+                            <option value="title_desc" className="bg-[#091332]">Z to A</option>
+                          </select>
+                        </div>
+
+                        {/* Dedicated Tag Filter Button */}
+                        {availableSearchTags.length > 0 && (
+                          <button
+                            id="open-tag-filter-btn"
+                            type="button"
+                            onClick={() => setShowTagFilterDrawer(prev => !prev)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all cursor-pointer active:scale-95 ${
+                              selectedSearchTags.length > 0
+                                ? 'bg-blue-600 text-white border-blue-400 shadow-sm shadow-blue-950/50'
+                                : 'bg-[#070e24]/70 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
+                            }`}
+                            title="Open Tag Filter Drawer"
+                          >
+                            <Tags className="w-3.5 h-3.5" />
+                            <span>Tags</span>
+                            {selectedSearchTags.length > 0 ? (
+                              <span className="px-1.5 py-0.2 rounded-full bg-blue-700 text-blue-100 text-[10px]">
+                                {selectedSearchTags.length}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                ({availableSearchTags.length})
+                              </span>
+                            )}
+                          </button>
                         )}
-                      </p>
+
+                        {/* Refine Tools Toggle (Search within results, web fallback) */}
+                        <button
+                          type="button"
+                          onClick={() => setShowResultsTools(prev => !prev)}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-sans transition-all cursor-pointer active:scale-95 ${
+                            showResultsTools || searchWithinQuery.trim()
+                              ? 'bg-blue-950/50 border-blue-500/40 text-blue-300'
+                              : 'bg-[#070e24]/70 border-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                          title="Toggle Search Within Results & Web Fallback tools"
+                        >
+                          <Sparkles className="w-3 h-3 text-blue-400" />
+                          <span className="hidden sm:inline">Refine</span>
+                        </button>
+
+                        {/* Download PDF button */}
+                        <button
+                          type="button"
+                          disabled={filteredSearchResults.length === 0}
+                          onClick={() => {
+                            exportSearchResultsToPDF(searchQuery, filteredSearchResults);
+                            showToast(`Downloaded PDF with ${filteredSearchResults.length} results`, "success");
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl border border-slate-800 bg-[#070e24]/70 text-slate-400 hover:text-white hover:border-blue-500/40 disabled:opacity-40 transition-all text-xs flex items-center gap-1 active:scale-95 cursor-pointer"
+                          title="Download search results as PDF"
+                          aria-label="Download search results as PDF"
+                        >
+                          <Download className="w-3.5 h-3.5 text-blue-400" />
+                          <span className="hidden sm:inline text-xs font-sans">PDF</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 flex-wrap shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleToggleSearxngFallback}
-                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-mono font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                        searxngFallbackEnabled
-                          ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/50'
-                          : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
-                      }`}
-                      title="Toggle automatic SearXNG fallback when Firestore results are sparse"
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>Fallback: {searxngFallbackEnabled ? 'ON' : 'OFF'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleToggleSearxngAutoIndex}
-                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-mono font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                        searxngAutoIndex
-                          ? 'bg-blue-950/50 border-blue-500/40 text-blue-300 hover:bg-blue-900/50'
-                          : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
-                      }`}
-                      title="Automatically save SearXNG fallback results into your Firestore catalog and Crawler Seeds"
-                    >
-                      <Database className="w-3.5 h-3.5" />
-                      <span>Auto-Index: {searxngAutoIndex ? 'ON' : 'OFF'}</span>
-                    </button>
-
-                    {searchQuery.trim() && (
-                      <button
-                        type="button"
-                        onClick={() => handleSearch(searchQuery, false, undefined, true)}
-                        className="px-2.5 py-1.5 rounded-xl text-[11px] font-sans font-bold bg-blue-600/20 hover:bg-blue-600/35 text-blue-300 border border-blue-500/40 transition-all cursor-pointer flex items-center gap-1 active:scale-95"
-                        title="Force a live SearXNG metasearch query even if Firestore already has results"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${isSearching ? 'animate-spin' : ''}`} />
-                        <span>Fetch SearXNG Live</span>
-                      </button>
+                    {/* Active Tag Chips row: Compact inline feedback without obstructing results */}
+                    {selectedSearchTags.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap py-1 text-xs font-mono">
+                        <span className="text-slate-500 text-[11px] font-semibold">Active:</span>
+                        {selectedSearchTags.map(tag => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-600/15 text-blue-400 border border-blue-500/30 text-xs"
+                          >
+                            #{tag}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSearchTag(tag)}
+                              className="hover:text-red-400 transition-colors cursor-pointer p-0.5"
+                              title={`Remove #${tag}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={handleClearSearchTags}
+                          className="text-[10px] text-red-400 hover:text-red-300 underline cursor-pointer ml-1"
+                        >
+                          Clear all
+                        </button>
+                      </div>
                     )}
+
+                    {/* Collapsible Refine Tools: Search within results & Web Fallback controls */}
+                    <AnimatePresence>
+                      {showResultsTools && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden flex flex-col gap-2.5 pt-1 pb-1"
+                        >
+                          {/* Search within results */}
+                          <div className="bg-[#070e24]/70 border border-slate-800 p-3 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                            <div className="flex items-center gap-1.5 text-xs text-slate-300 font-bold shrink-0">
+                              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                              <span>Search within results:</span>
+                            </div>
+                            <div className="relative flex-1">
+                              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                              <input
+                                type="text"
+                                placeholder="Filter results by keyword in title, snippet, or URL..."
+                                value={searchWithinQuery}
+                                onChange={(e) => setSearchWithinQuery(e.target.value)}
+                                className="w-full pl-9 pr-14 py-2 bg-[#030712] border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:border-blue-500"
+                              />
+                              {searchWithinQuery && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSearchWithinQuery('')}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-red-400 hover:text-red-300 font-mono"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* SearXNG Fallback Control Strip */}
+                          <div className="bg-[#070e24]/70 border border-slate-800 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
+                            <div className="flex items-center gap-2">
+                              <Globe className="w-4 h-4 text-emerald-400 shrink-0" />
+                              <div>
+                                <span className="font-bold text-slate-200">SearXNG Live Web Fallback</span>
+                                <p className="text-[11px] text-slate-400">
+                                  {lastSearchFallbackMeta?.triggered
+                                    ? `Fetched ${lastSearchFallbackMeta.fallbackCount} web results via SearXNG.`
+                                    : `Auto-fetches web results when Firestore index is sparse.`}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={handleToggleSearxngFallback}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border ${
+                                  searxngFallbackEnabled
+                                    ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
+                                    : 'bg-slate-900 border-slate-800 text-slate-500'
+                                }`}
+                              >
+                                Fallback: {searxngFallbackEnabled ? 'ON' : 'OFF'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleToggleSearxngAutoIndex}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border ${
+                                  searxngAutoIndex
+                                    ? 'bg-blue-950/50 border-blue-500/40 text-blue-300'
+                                    : 'bg-slate-900 border-slate-800 text-slate-500'
+                                }`}
+                              >
+                                Auto-Index: {searxngAutoIndex ? 'ON' : 'OFF'}
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                </div>
+                )}
 
                 {/* Empty state for main query */}
                 {searchResults.length === 0 && (
@@ -8402,8 +8361,8 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Search Results Animated List with motion.div */}
-                <div className="flex flex-col gap-6">
+                {/* Search Results Animated List - Begins Immediately After Controls */}
+                <div className="flex flex-col gap-4 sm:gap-6 mt-1">
                   <AnimatePresence mode="popLayout" initial={false}>
                     {/* Empty state when original has results, but current inner query or tag filter filters out everything */}
                     {searchResults.length > 0 && filteredSearchResults.length === 0 && (
@@ -8480,8 +8439,8 @@ export default function App() {
                         className="bg-[#070e24]/90 border border-slate-800 hover:border-blue-500/50 p-5 rounded-2xl hover:shadow-[0_0_20px_rgba(37,99,235,0.15)] transition-[border-color,box-shadow,background-color] duration-200 flex flex-col gap-2.5 relative group"
                       >
                     {/* Cache and Metadata icons */}
-                    <div className="flex items-center justify-between gap-2.5 text-xs">
-                      <span className="text-blue-400 font-mono truncate max-w-[280px] sm:max-w-md">{item.url}</span>
+                    <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
+                      <span className="text-blue-400 font-mono truncate max-w-[200px] sm:max-w-md flex-1 min-w-[130px]">{item.url}</span>
                       <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                         {item.is_searxng_fallback && (
                           <span
@@ -17505,6 +17464,66 @@ export default function App() {
         sessionId={sessionId}
         onNotify={showToast}
       />
+
+      {/* Mobile & Desktop Tag Filter Drawer / Bottom Sheet */}
+      <AnimatePresence>
+        {showTagFilterDrawer && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTagFilterDrawer(false)}
+              className="fixed inset-0 bg-[#02020a]/80 backdrop-blur-sm cursor-pointer"
+            />
+
+            {/* Panel Sheet */}
+            <motion.div
+              initial={{ opacity: 0, y: 120, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 120, scale: 0.98 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className={`relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl z-50 p-2 sm:p-4 shadow-[0_20px_60px_rgba(0,0,0,0.85)] border flex flex-col gap-3 font-sans ${
+                isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#091332] border-slate-800 text-slate-200'
+              }`}
+            >
+              <SearchTagFilterBar
+                availableTags={availableSearchTags}
+                selectedTags={selectedSearchTags}
+                filterLogic={searchTagFilterLogic}
+                totalResultsCount={searchResults.length}
+                filteredResultsCount={filteredSearchResults.length}
+                onToggleTag={handleToggleSearchTag}
+                onClearTags={handleClearSearchTags}
+                onToggleLogic={handleToggleSearchTagLogic}
+                isLight={isLight}
+                onClose={() => setShowTagFilterDrawer(false)}
+              />
+
+              {/* Bottom Actions Bar */}
+              <div className={`flex items-center justify-between gap-3 pt-2 pb-1 px-2 border-t text-xs ${
+                isLight ? 'border-slate-100 text-slate-600' : 'border-slate-800/80 text-slate-400'
+              }`}>
+                <span className="font-mono text-[11px]">
+                  {selectedSearchTags.length > 0 ? (
+                    <strong className="text-blue-400">{filteredSearchResults.length} of {searchResults.length} matches</strong>
+                  ) : (
+                    <span>All {searchResults.length} pages match</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowTagFilterDrawer(false)}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold font-sans text-xs cursor-pointer active:scale-95 transition-all shadow-md"
+                >
+                  View Results ({filteredSearchResults.length})
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Floating Animated Toast Stack */}
       <div className="fixed bottom-6 left-6 z-50 flex flex-col gap-2.5 max-w-xs sm:max-w-sm pointer-events-none">

@@ -27,7 +27,8 @@ import {
 import {
   DictionaryEntry,
   extractDictionaryQuery,
-  lookupDictionaryWord
+  lookupDictionaryWord,
+  getImmediateDictionaryEntry
 } from '../utils/dictionaryService';
 
 import {
@@ -147,7 +148,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
   };
 
   // --------------------------------------------------------------------------
-  // Intelligent Typing Debounce (prevents widget from triggering prematurely while user is writing)
+  // Intelligent Typing Debounce (ultra-responsive 120ms response time)
   // --------------------------------------------------------------------------
   const [debouncedQuery, setDebouncedQuery] = useState(query);
   const [isTyping, setIsTyping] = useState(false);
@@ -166,11 +167,19 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
       return;
     }
 
+    // Fast-path: if query matches an immediate offline dictionary entry, bypass debounce!
+    const immediateWord = extractDictionaryQuery(query);
+    if (immediateWord && getImmediateDictionaryEntry(immediateWord)) {
+      setDebouncedQuery(query);
+      setIsTyping(false);
+      return;
+    }
+
     setIsTyping(true);
     const timer = setTimeout(() => {
       setDebouncedQuery(query);
       setIsTyping(false);
-    }, 420);
+    }, 120);
 
     return () => {
       clearTimeout(timer);
@@ -242,15 +251,39 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
   };
 
   // --------------------------------------------------------------------------
-  // 3. Quick Dictionary Check
+  // 3. Quick Dictionary Check (Instant 0ms for offline words + snappy 120ms for API)
   // --------------------------------------------------------------------------
+  // Synchronous extraction directly from current query for zero-delay offline rendering
+  const rawDictWord = useMemo(() => {
+    return extractDictionaryQuery(query);
+  }, [query]);
+
+  // Load offline entries immediately in 0ms without waiting for debounce
+  useEffect(() => {
+    if (!rawDictWord) {
+      setDictData(null);
+      return;
+    }
+    const immediate = getImmediateDictionaryEntry(rawDictWord);
+    if (immediate) {
+      setDictData(immediate);
+    }
+  }, [rawDictWord]);
+
   const targetDictWord = useMemo(() => {
     return extractDictionaryQuery(debouncedQuery);
   }, [debouncedQuery]);
 
   useEffect(() => {
-    if (!targetDictWord || isTyping) {
-      if (!targetDictWord) setDictData(null);
+    if (!targetDictWord) {
+      return;
+    }
+
+    // If already resolved via immediate offline database, no network fetch needed
+    const immediate = getImmediateDictionaryEntry(targetDictWord);
+    if (immediate) {
+      setDictData(immediate);
+      setDictLoading(false);
       return;
     }
 
@@ -258,7 +291,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
     setDictLoading(true);
     lookupDictionaryWord(targetDictWord, abortController.signal)
       .then(res => {
-        if (!abortController.signal.aborted) {
+        if (!abortController.signal.aborted && res) {
           setDictData(res);
         }
       })
@@ -271,7 +304,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
     return () => {
       abortController.abort();
     };
-  }, [targetDictWord, isTyping]);
+  }, [targetDictWord]);
 
   // --------------------------------------------------------------------------
   // 4. Wikipedia Entity InfoBox Check (with Typo-Tolerance e.g. "issac newton")
@@ -418,9 +451,15 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
     }
   }, [colorMatch]);
 
+  // Immediate dictionary readiness check - displays instantaneously when definition is available
+  const isDictReady = Boolean(
+    dictData && rawDictWord && dictData.word.toLowerCase() === rawDictWord.toLowerCase()
+  );
+
   // If no instant answer matched, or user is still actively typing, render nothing
   const hasActiveWidget = Boolean(
-    !isTyping && (
+    isDictReady ||
+    (!isTyping && (
       mathResult ||
       convResult ||
       dictData ||
@@ -429,7 +468,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
       timeCityMatch ||
       isStopwatchMatch ||
       colorMatch
-    )
+    ))
   );
 
   if (!hasActiveWidget) {
