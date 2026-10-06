@@ -515,6 +515,30 @@ const PUBLIC_SEARXNG_INSTANCES = [
   'https://search.bus-hit.me'
 ];
 
+const IMAGE_QUERY_STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'for', 'from', 'how', 'image', 'images', 'in', 'is', 'of', 'on',
+  'or', 'photo', 'photos', 'picture', 'pictures', 'the', 'to', 'what', 'with'
+]);
+
+function imageQueryTerms(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(t => t.length >= 2 && !IMAGE_QUERY_STOPWORDS.has(t))
+    .map(t => (t.length > 4 && t.endsWith('s') ? t.slice(0, -1) : t));
+}
+
+// True when at least one query term appears in the image's title/tags.
+function matchesImageQuery(terms: string[], fields: unknown[]): boolean {
+  if (terms.length === 0) return true;
+  const haystack = fields
+    .filter((f): f is string => typeof f === 'string')
+    .join(' ')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ');
+  return terms.some(term => haystack.includes(term));
+}
+
 function extractTopicalTags(query: string, title: string, snippet: string): string[] {
   const stopWords = new Set([
     'the', 'and', 'for', 'with', 'from', 'that', 'this', 'your', 'have',
@@ -1194,7 +1218,19 @@ async function startServer() {
 
     const colors = ['blue', 'teal', 'purple', 'green', 'orange', 'red', 'pink', 'yellow', 'white', 'black'];
 
-    // 1. Try SearXNG Image Search JSON
+    const queryTerms = imageQueryTerms(queryStr);
+    const toImageItem = (
+      item: { url?: string; title?: string; source_url?: string },
+      idx: number
+    ) => ({
+      url: item.url as string,
+      alt_text: item.title || queryStr,
+      source_url: item.source_url || item.url || '',
+      title: item.title || queryStr,
+      dominant_color: colors[(idx + (pageNum - 1) * 3) % colors.length]
+    });
+
+    // 1. SearXNG image search (aggregates Bing/Google/DDG images)
     for (const baseUrl of candidateInstances.slice(0, 3)) {
       try {
         const imgSearchUrl = `${baseUrl}/search?q=${encodeURIComponent(queryStr)}&categories=images&pageno=${pageNum}&format=json`;
@@ -1205,57 +1241,89 @@ async function startServer() {
           },
           signal: AbortSignal.timeout(2500)
         });
-        if (response.ok) {
-          const data: any = await response.json();
-          const rawResults = Array.isArray(data?.results) ? data.results : [];
-          const mappedImages = rawResults
-            .filter((r: any) => r && (r.img_src || r.thumbnail_src))
-            .slice(0, 8)
-            .map((r: any, idx: number) => ({
-              url: r.img_src || r.thumbnail_src,
-              alt_text: r.title || queryStr,
-              source_url: r.url || baseUrl,
-              title: r.title || `${queryStr} (${idx + 1})`,
-              dominant_color: colors[(idx + (pageNum - 1) * 3) % colors.length]
-            }));
-          if (mappedImages.length > 0) {
-            res.json(mappedImages);
-            return;
-          }
+        if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) continue;
+        const data: any = await response.json();
+        const rawResults = Array.isArray(data?.results) ? data.results : [];
+        const mappedImages = rawResults
+          .filter((r: any) => r && (r.img_src || r.thumbnail_src))
+          .slice(0, 20)
+          .map((r: any, idx: number) =>
+            toImageItem({ url: r.img_src || r.thumbnail_src, title: r.title, source_url: r.url }, idx)
+          );
+        if (mappedImages.length > 0) {
+          res.json(mappedImages);
+          return;
         }
       } catch (_) {}
     }
 
-    // 2. Fallback to Wikipedia Commons / PageImages API
+    // 2. Openverse (openly licensed images indexed by title, tags and description)
     try {
-      const wikiOffset = (pageNum - 1) * 8;
-      const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(
+      const openverseUrl = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(
         queryStr
-      )}&gsrlimit=8&gsroffset=${wikiOffset}&prop=pageimages|info&inprop=url&pithumbsize=600&format=json&origin=*`;
-      const wikiRes = await fetch(wikiUrl, {
-        headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
-        signal: AbortSignal.timeout(3000)
+      )}&page=${pageNum}&page_size=20&mature=false`;
+      const ovRes = await fetch(openverseUrl, {
+        headers: { Accept: 'application/json', 'User-Agent': 'IsaacSearchEngine/2.0' },
+        signal: AbortSignal.timeout(4000)
       });
-      if (wikiRes.ok) {
-        const wikiData: any = await wikiRes.json();
-        const pages = wikiData?.query?.pages ? Object.values(wikiData.query.pages) : [];
-        const wikiImages = (pages as any[])
-          .filter(p => p?.thumbnail?.source)
-          .map((p, idx) => ({
-            url: p.thumbnail.source,
-            alt_text: p.title || queryStr,
-            source_url: p.fullurl || `https://en.wikipedia.org/?curid=${p.pageid}`,
-            title: p.title || queryStr,
-            dominant_color: colors[(idx + (pageNum - 1) * 3) % colors.length]
-          }));
-        if (wikiImages.length > 0) {
-          res.json(wikiImages);
+      if (ovRes.ok) {
+        const ovData: any = await ovRes.json();
+        const results = Array.isArray(ovData?.results) ? ovData.results : [];
+        const ovImages = results
+          .filter((r: any) => (r?.thumbnail || r?.url) && matchesImageQuery(queryTerms, [
+            r.title,
+            ...(Array.isArray(r.tags) ? r.tags.map((t: any) => t?.name) : [])
+          ]))
+          .map((r: any, idx: number) =>
+            toImageItem({ url: r.thumbnail || r.url, title: r.title, source_url: r.foreign_landing_url }, idx)
+          );
+        if (ovImages.length > 0) {
+          res.json(ovImages);
           return;
         }
       }
     } catch (_) {}
 
-    res.status(404).json({ error: 'No live images found, use client fallback' });
+    // 3. Wikimedia Commons file search (actual image files, not article lead images)
+    try {
+      const commonsOffset = (pageNum - 1) * 20;
+      const commonsUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(
+        `${queryStr} filetype:bitmap`
+      )}&gsrlimit=20&gsroffset=${commonsOffset}&prop=imageinfo&iiprop=url|mime&iiurlwidth=600&format=json&origin=*`;
+      const commonsRes = await fetch(commonsUrl, {
+        headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
+        signal: AbortSignal.timeout(4000)
+      });
+      if (commonsRes.ok) {
+        const commonsData: any = await commonsRes.json();
+        const pages = commonsData?.query?.pages ? (Object.values(commonsData.query.pages) as any[]) : [];
+        const commonsImages = pages
+          .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+          .map(p => ({ page: p, info: p?.imageinfo?.[0] }))
+          .filter(({ page, info }) =>
+            info &&
+            /^image\/(jpeg|png|webp|gif)$/.test(info.mime || '') &&
+            (info.thumburl || info.url) &&
+            matchesImageQuery(queryTerms, [page.title])
+          )
+          .map(({ page, info }, idx) =>
+            toImageItem(
+              {
+                url: info.thumburl || info.url,
+                title: String(page.title || '').replace(/^File:/, '').replace(/\.[a-z0-9]+$/i, '').replace(/_/g, ' '),
+                source_url: info.descriptionurl
+              },
+              idx
+            )
+          );
+        if (commonsImages.length > 0) {
+          res.json(commonsImages);
+          return;
+        }
+      }
+    } catch (_) {}
+
+    res.json([]);
   });
 
   app.get('/api/pages/:id', (req: Request, res: Response) => {
