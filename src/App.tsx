@@ -8114,33 +8114,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* Dedicated Tag Filter Button */}
-                        {availableSearchTags.length > 0 && (
-                          <button
-                            id="open-tag-filter-btn"
-                            type="button"
-                            onClick={() => setShowTagFilterDrawer(prev => !prev)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all cursor-pointer active:scale-95 ${
-                              selectedSearchTags.length > 0
-                                ? 'bg-blue-600 text-white border-blue-400 shadow-sm shadow-blue-950/50'
-                                : 'bg-[#070e24]/70 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
-                            }`}
-                            title="Open Tag Filter Drawer"
-                          >
-                            <Tags className="w-3.5 h-3.5" />
-                            <span>Tags</span>
-                            {selectedSearchTags.length > 0 ? (
-                              <span className="px-1.5 py-0.2 rounded-full bg-blue-700 text-blue-100 text-[10px]">
-                                {selectedSearchTags.length}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 font-normal">
-                                ({availableSearchTags.length})
-                              </span>
-                            )}
-                          </button>
-                        )}
-
                         {/* Refine Tools Toggle (Search within results, web fallback) */}
                         <button
                           type="button"
@@ -16847,8 +16820,32 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating Keyboard Shortcuts Trigger Badge */}
-      <div className="fixed bottom-6 right-6 z-40 hidden sm:block">
+      {/* Floating Corner Controls: Tag Filter + Keyboard Shortcuts */}
+      <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
+        {activeTab === 'search' && availableSearchTags.length > 0 && (
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowTagFilterDrawer(prev => !prev)}
+            className={`flex items-center gap-2 px-3 py-2 border rounded-full text-xs font-mono font-bold shadow-[0_4px_24px_rgba(0,0,0,0.6)] backdrop-blur-md transition-all cursor-pointer ${
+              selectedSearchTags.length > 0
+                ? 'bg-blue-600/90 border-blue-400 text-white'
+                : 'bg-[#091332]/90 border-slate-800 text-slate-300 hover:text-blue-400 hover:border-blue-500/50'
+            }`}
+            title="Open Tag Filter Drawer"
+            aria-label={selectedSearchTags.length > 0 ? `Tag filters, ${selectedSearchTags.length} active` : 'Tag filters'}
+          >
+            <Tags className={`w-4 h-4 ${selectedSearchTags.length > 0 ? 'text-white' : 'text-blue-400'}`} />
+            <span>Tags</span>
+            <span className={`border rounded px-1.5 py-0.5 text-[9px] font-bold ${
+              selectedSearchTags.length > 0
+                ? 'bg-blue-700 border-blue-500 text-blue-100'
+                : 'bg-[#030712] border-slate-800 text-slate-400'
+            }`}>
+              {selectedSearchTags.length > 0 ? selectedSearchTags.length : availableSearchTags.length}
+            </span>
+          </motion.button>
+        )}
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
