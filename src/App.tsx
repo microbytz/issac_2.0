@@ -1544,10 +1544,8 @@ export default function App() {
     setLocalNotes,
     lastSaved,
     isSaving
-  } = useNotebookAutosave(selectedProjectId, activeProjectNotes, (notesText) => {
-    if (selectedProjectId) {
-      handleUpdateProjectNotes(selectedProjectId, notesText);
-    }
+  } = useNotebookAutosave(selectedProjectId, activeProjectNotes, (notesText, projId) => {
+    handleUpdateProjectNotes(projId, notesText);
   });
 
   const [activeSavePageId, setActiveSavePageId] = useState<string | null>(null);
@@ -16001,7 +15999,7 @@ export default function App() {
                                                 onClick={() => handleToggleTaskInProject(activeProj.id, task.id)}
                                               >
                                                 <span 
-                                                  className={`text-xs font-sans font-medium text-left truncate ${task.completed ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-200'}`}
+                                                  className={`text-xs font-sans font-medium text-left line-clamp-2 break-words min-w-0 ${task.completed ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-200'}`}
                                                   title={task.text}
                                                 >
                                                   {task.text}
@@ -16250,7 +16248,7 @@ export default function App() {
                                                     ) : (
                                                       <span 
                                                         onClick={() => handleToggleTaskInProject(activeProj.id, subtask.id, true, task.id)}
-                                                        className={`text-xs font-sans text-left truncate cursor-pointer select-none ${subtask.completed ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-300'}`}
+                                                        className={`text-xs font-sans text-left line-clamp-2 break-words min-w-0 cursor-pointer select-none ${subtask.completed ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-300'}`}
                                                         title={subtask.text}
                                                       >
                                                         {subtask.text}

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 export function useNotebookAutosave(
   projectId: string | null,
   initialNotes: string,
-  onSave: (notesText: string) => void
+  onSave: (notesText: string, projectId: string) => void
 ) {
   const [localNotes, setLocalNotes] = useState(initialNotes);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -15,11 +15,31 @@ export function useNotebookAutosave(
   // Keep a ref to localNotes to avoid re-triggering the save interval on every keystroke
   const localNotesRef = useRef(localNotes);
 
-  // Sync with initialNotes when projectId changes. The ref is reset immediately so listeners
-  // registered for the new project never see the previous project's notes.
+  // Refs tracking which project the current localNotes belong to and the last
+  // saved/loaded baseline, so exit handlers and the project-switch flush always
+  // attribute edits to the right project.
+  const projectIdRef = useRef(projectId);
+  const baselineRef = useRef(initialNotes);
+
+  const flush = (id: string | null) => {
+    if (id && localNotesRef.current !== baselineRef.current) {
+      localStorage.setItem(`isaac_notebook_draft_${id}`, localNotesRef.current);
+      onSaveRef.current(localNotesRef.current, id);
+      baselineRef.current = localNotesRef.current;
+    }
+  };
+
+  // When the project changes, save the outgoing project's pending edits BEFORE
+  // resetting the notes state. Without this flush, edits made since the last
+  // 5s autosave were silently dropped on project switches.
   useEffect(() => {
-    localNotesRef.current = initialNotes;
-    setLocalNotes(initialNotes);
+    if (projectIdRef.current !== projectId) {
+      flush(projectIdRef.current);
+      projectIdRef.current = projectId;
+      localNotesRef.current = initialNotes;
+      setLocalNotes(initialNotes);
+    }
+    baselineRef.current = initialNotes;
   }, [projectId, initialNotes]);
 
   useEffect(() => {
@@ -31,18 +51,9 @@ export function useNotebookAutosave(
     if (!projectId) return;
 
     const interval = setInterval(() => {
-      const currentNotes = localNotesRef.current;
-
-      // Only save if notes have actually changed from the last committed/initial notes
-      if (currentNotes !== initialNotes) {
+      if (localNotesRef.current !== baselineRef.current) {
         setIsSaving(true);
-
-        // Save to specific draft key in localStorage as a redundant safety measure
-        localStorage.setItem(`isaac_notebook_draft_${projectId}`, currentNotes);
-
-        // Commit notes update back to the main projects list
-        onSaveRef.current(currentNotes);
-
+        flush(projectId);
         setLastSaved(new Date());
         setTimeout(() => setIsSaving(false), 1000);
       }
@@ -51,13 +62,10 @@ export function useNotebookAutosave(
     return () => clearInterval(interval);
   }, [projectId, initialNotes]);
 
-  // Handle sudden window navigation, page hide, or tab closure
+  // Handle sudden window navigation, page hide, tab closure, or unmount
   useEffect(() => {
     const handleSaveOnExit = () => {
-      if (projectId && localNotesRef.current !== initialNotes) {
-        localStorage.setItem(`isaac_notebook_draft_${projectId}`, localNotesRef.current);
-        onSaveRef.current(localNotesRef.current);
-      }
+      flush(projectIdRef.current);
     };
 
     const handleVisibilityChange = () => {
@@ -72,10 +80,9 @@ export function useNotebookAutosave(
     return () => {
       window.removeEventListener('beforeunload', handleSaveOnExit);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      // Save on unmount (e.g., tab changes or switching projects)
       handleSaveOnExit();
     };
-  }, [projectId, initialNotes]);
+  }, []);
 
   return {
     localNotes,
