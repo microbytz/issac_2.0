@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import * as d3 from 'd3';
 import {
   FolderTree,
@@ -778,6 +779,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
     return pages.filter(p => p.tags && p.tags.some(tag => tag.toLowerCase() === t));
   }, [inspectedNode, pages]);
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <div className={`bg-white border border-slate-200 rounded-3xl shadow-sm flex flex-col overflow-hidden transition-all ${className}`}>
       {/* Header Toolbar */}
@@ -1109,7 +1111,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
 
       {/* Set Parent / Reparenting Modal */}
       {isReparentModalOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Configure tag parent relationship" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Configure tag parent relationship" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-3xl shadow-xl w-full max-w-md p-6 flex flex-col gap-5 animate-scale-in">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-package com.isaac.searchengine;
+package issac.microbytz.xyz;
 
 import com.getcapacitor.BridgeActivity;
 

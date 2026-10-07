@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -104,6 +105,7 @@ export default function FireplexityTab({
   onIndexImageItem,
   onNotify
 }: FireplexityTabProps) {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   const [turns, setTurns] = useState<FireplexityTurn[]>(() => {
     try {
       const saved = localStorage.getItem('isaac_fireplexity_turns');
@@ -1393,7 +1395,7 @@ export default function FireplexityTab({
       {/* Scraped Markdown Inspector Modal */}
       <AnimatePresence>
         {inspectingSource && (
-          <div role="dialog" aria-modal="true" aria-label="Scraped content inspector" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Scraped content inspector" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1461,7 +1463,7 @@ export default function FireplexityTab({
       {/* Image Lightbox Modal */}
       <AnimatePresence>
         {lightboxImage && (
-          <div role="dialog" aria-modal="true" aria-label="Image viewer" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Image viewer" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useFocusTrap } from './hooks/useFocusTrap';
 import * as d3 from 'd3';
 import { 
   Search, Sparkles, History, Globe, Database, HelpCircle, 
@@ -1224,6 +1225,7 @@ const getLanguageColorInfo = (lang?: string) => {
 };
 
 export default function App() {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   // Theme state
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
@@ -11919,7 +11921,7 @@ export default function App() {
                 };
 
                 return (
-                  <div role="dialog" aria-modal="true" aria-label="Crawl run log" className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
+                  <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Crawl run log" className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
                     <motion.div
                       initial={{ opacity: 0, scale: 0.95, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -16512,7 +16514,7 @@ export default function App() {
         {/* Create Research Project Modal Overlay */}
         <AnimatePresence>
           {showCreateProjectModal && (
-            <div role="dialog" aria-modal="true" aria-label="Create research project" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Create research project" className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -16732,7 +16734,7 @@ export default function App() {
       {/* Clear Search History Confirmation Modal */}
       <AnimatePresence>
         {showClearHistoryConfirm && (
-          <div role="dialog" aria-modal="true" aria-label="Clear search history" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Clear search history" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop with dynamic blur */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -16791,7 +16793,7 @@ export default function App() {
       {/* Delete Project Confirmation Modal */}
       <AnimatePresence>
         {projectToDelete && (
-          <div role="dialog" aria-modal="true" aria-label="Delete project" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Delete project" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop with dynamic blur */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -16865,7 +16867,7 @@ export default function App() {
       {/* Keyboard Shortcuts Dialog Overlay */}
       <AnimatePresence>
         {showShortcutsHelp && (
-          <div role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Dimmed backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -17044,7 +17046,7 @@ export default function App() {
       {/* Global Command Palette / Search Overlay */}
       <AnimatePresence>
         {showCommandPalette && (
-          <div role="dialog" aria-modal="true" aria-label="Command palette" className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 pb-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Command palette" className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 pb-4">
             {/* Dimmed backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -17401,7 +17403,7 @@ export default function App() {
       {/* Mobile & Desktop Tag Filter Drawer / Bottom Sheet */}
       <AnimatePresence>
         {showTagFilterDrawer && (
-          <div role="dialog" aria-modal="true" aria-label="Tag filters" className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Tag filters" className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}

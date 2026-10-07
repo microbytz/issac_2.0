@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Tags,
@@ -351,8 +352,9 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
 
   if (!isOpen) return null;
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
-    <div role="dialog" aria-modal="true" aria-label="Manage tags" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
+    <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Manage tags" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
       {/* Backdrop */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -1174,7 +1176,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
 
       {/* Delete Single Tag Confirmation Modal */}
       {tagPendingDelete && (
-        <div role="dialog" aria-modal="true" aria-label="Delete tag" className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+        <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Delete tag" className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-slate-900 border border-red-500/40 p-5 rounded-2xl shadow-2xl flex flex-col gap-4 text-slate-200">
             <div className="flex items-center gap-3 text-red-400">
               <div className="p-2 bg-red-500/20 rounded-xl">
@@ -1211,7 +1213,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
 
       {/* Batch Delete Confirmation Modal */}
       {confirmBatchDeleteOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Confirm batch delete" className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+        <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Confirm batch delete" className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-slate-900 border border-red-500/40 p-5 rounded-2xl shadow-2xl flex flex-col gap-4 text-slate-200">
             <div className="flex items-center gap-3 text-red-400">
               <div className="p-2 bg-red-500/20 rounded-xl">

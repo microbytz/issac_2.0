@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Archive,
@@ -145,8 +146,9 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
     }
   };
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
-    <div role="dialog" aria-modal="true" aria-label="Batch export collections" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto animate-fade-in">
+    <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Batch export collections" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto animate-fade-in">
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

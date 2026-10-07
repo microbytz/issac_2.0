@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Settings,
@@ -147,11 +148,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!isOpen) return null;
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <AnimatePresence>
       <div
         id="settings-modal-backdrop"
-        role="dialog" aria-modal="true" aria-label="Settings and privacy" className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-sm overflow-y-auto"
+        ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Settings and privacy" className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-sm overflow-y-auto"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             onClose();

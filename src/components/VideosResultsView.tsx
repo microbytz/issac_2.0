@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Play,
@@ -83,6 +84,7 @@ export const VideosResultsView: React.FC<VideosResultsViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <div className="flex flex-col gap-4 mt-2">
       <div className="flex items-center justify-between text-xs text-slate-400 pb-2 border-b border-slate-800/60 font-mono">
@@ -243,7 +245,7 @@ export const VideosResultsView: React.FC<VideosResultsViewProps> = ({
       <AnimatePresence>
         {activeVideoModal && (
           <div
-            role="dialog" aria-modal="true" aria-label="Video player" className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-md animate-fade-in"
+            ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Video player" className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-md animate-fade-in"
             onClick={(e) => {
               if (e.target === e.currentTarget) setActiveVideoModal(null);
             }}
