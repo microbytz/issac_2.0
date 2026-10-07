@@ -1,4 +1,5 @@
 import express from 'express';
+import sharp from 'sharp';
 import type { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import zlib from 'zlib';
@@ -514,6 +515,149 @@ const PUBLIC_SEARXNG_INSTANCES = [
   'https://opnxng.com',
   'https://search.bus-hit.me'
 ];
+
+const DOMINANT_COLOR_CACHE = new Map<string, string>();
+const MAX_DOMINANT_COLOR_CACHE = 2000;
+const MAX_COLOR_SAMPLE_BYTES = 5 * 1024 * 1024;
+
+function rgbToPaletteColor(r: number, g: number, b: number): { name: string; chromatic: boolean; sat: number } {
+  const max = Math.max(r, g, b) / 255;
+  const min = Math.min(r, g, b) / 255;
+  const delta = max - min;
+  const sat = max === 0 ? 0 : delta / max;
+  if (max < 0.2) return { name: 'black', chromatic: false, sat };
+  if (sat < 0.2) return { name: max > 0.6 ? 'white' : 'black', chromatic: false, sat };
+
+  let hue = 0;
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  if (max === rn) hue = 60 * (((gn - bn) / delta) % 6);
+  else if (max === gn) hue = 60 * ((bn - rn) / delta + 2);
+  else hue = 60 * ((rn - gn) / delta + 4);
+  if (hue < 0) hue += 360;
+
+  if (hue >= 15 && hue < 45 && max < 0.6) return { name: 'brown', chromatic: true, sat };
+  if (hue < 15 || hue >= 345) return { name: max < 0.45 && sat < 0.5 ? 'brown' : 'red', chromatic: true, sat };
+  if (hue < 45) return { name: 'orange', chromatic: true, sat };
+  if (hue < 70) return { name: 'yellow', chromatic: true, sat };
+  if (hue < 160) return { name: 'green', chromatic: true, sat };
+  if (hue < 190) return { name: 'teal', chromatic: true, sat };
+  if (hue < 250) return { name: 'blue', chromatic: true, sat };
+  if (hue < 290) return { name: 'purple', chromatic: true, sat };
+  return { name: 'pink', chromatic: true, sat };
+}
+
+// Downsamples the image and returns the most common palette color, weighting the
+// centre (where the subject usually is) and preferring colourful pixels over
+// grey/black/white backgrounds.
+function classifyDominantColor(pixels: Buffer, width: number, height: number): string | undefined {
+  const scores = new Map<string, number>();
+  let chromaticWeight = 0;
+  let totalWeight = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 3;
+      const dx = (x + 0.5) / width - 0.5;
+      const dy = (y + 0.5) / height - 0.5;
+      const centreWeight = 1.5 - Math.min(1, Math.sqrt(dx * dx + dy * dy) * 2);
+      const { name, chromatic, sat } = rgbToPaletteColor(pixels[i], pixels[i + 1], pixels[i + 2]);
+      const weight = chromatic ? centreWeight * (0.5 + sat) : centreWeight;
+      scores.set(name, (scores.get(name) || 0) + weight);
+      totalWeight += weight;
+      if (chromatic) chromaticWeight += weight;
+    }
+  }
+  if (totalWeight === 0) return undefined;
+  const preferChromatic = chromaticWeight / totalWeight >= 0.15;
+  let best: string | undefined;
+  let bestScore = -1;
+  for (const [name, score] of scores) {
+    if (preferChromatic && (name === 'white' || name === 'black')) continue;
+    if (score > bestScore) {
+      best = name;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+// Flickr serves fixed size variants that share the same secret (except `_o` originals),
+// so a medium copy can be shown in the grid and a small one sampled for colour.
+function flickrSizedUrls(url: string): { display: string; sample: string } | null {
+  const match = url.match(/^(https:\/\/live\.staticflickr\.com\/\d+\/\d+_[0-9a-f]+)(?:_([a-z]))?\.jpg$/);
+  if (!match || match[2] === 'o') return null;
+  return { display: `${match[1]}_z.jpg`, sample: `${match[1]}_m.jpg` };
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function detectDominantColor(imageUrl: string): Promise<string | undefined> {
+  if (DOMINANT_COLOR_CACHE.has(imageUrl)) return DOMINANT_COLOR_CACHE.get(imageUrl);
+  let color: string | undefined;
+  try {
+    const response = await fetch(imageUrl, {
+      headers: { 'User-Agent': 'IsaacSearchEngine/2.0', Accept: 'image/*' },
+      signal: AbortSignal.timeout(3000)
+    });
+    const declaredLength = Number(response.headers.get('content-length') || 0);
+    if (response.ok && declaredLength <= MAX_COLOR_SAMPLE_BYTES) {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length <= MAX_COLOR_SAMPLE_BYTES) {
+        const size = 24;
+        const pixels = await sharp(buffer, { failOn: 'none' })
+          .resize(size, size, { fit: 'cover' })
+          .removeAlpha()
+          .toColourspace('srgb')
+          .raw()
+          .toBuffer();
+        color = classifyDominantColor(pixels, size, size);
+      }
+    }
+  } catch (_) {
+    color = undefined;
+  }
+  if (!color) return undefined;
+  if (DOMINANT_COLOR_CACHE.size >= MAX_DOMINANT_COLOR_CACHE) {
+    const oldest = DOMINANT_COLOR_CACHE.keys().next().value;
+    if (oldest !== undefined) DOMINANT_COLOR_CACHE.delete(oldest);
+  }
+  DOMINANT_COLOR_CACHE.set(imageUrl, color);
+  return color;
+}
+
+const IMAGE_QUERY_STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'for', 'from', 'how', 'image', 'images', 'in', 'is', 'of', 'on',
+  'or', 'photo', 'photos', 'picture', 'pictures', 'the', 'to', 'what', 'with'
+]);
+
+function imageQueryTerms(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(t => t.length >= 2 && !IMAGE_QUERY_STOPWORDS.has(t))
+    .map(t => (t.length > 4 && t.endsWith('s') ? t.slice(0, -1) : t));
+}
+
+// True when at least one query term appears in the image's title/tags.
+function matchesImageQuery(terms: string[], fields: unknown[]): boolean {
+  if (terms.length === 0) return true;
+  const haystack = fields
+    .filter((f): f is string => typeof f === 'string')
+    .join(' ')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ');
+  return terms.some(term => haystack.includes(term));
+}
 
 function extractTopicalTags(query: string, title: string, snippet: string): string[] {
   const stopWords = new Set([
@@ -1194,7 +1338,24 @@ async function startServer() {
 
     const colors = ['blue', 'teal', 'purple', 'green', 'orange', 'red', 'pink', 'yellow', 'white', 'black'];
 
-    // 1. Try SearXNG Image Search JSON
+    const queryTerms = imageQueryTerms(queryStr);
+    type ImageCandidate = { url?: string; title?: string; source_url?: string; color_url?: string };
+    const toImageItem = (item: ImageCandidate, _idx: number) => ({
+      url: item.url as string,
+      alt_text: item.title || queryStr,
+      source_url: item.source_url || item.url || '',
+      title: item.title || queryStr,
+      color_url: item.color_url || item.url
+    });
+    const sendImages = async (items: ReturnType<typeof toImageItem>[]) => {
+      const withColors = await mapWithConcurrency(items, 6, async ({ color_url, ...img }) => ({
+        ...img,
+        dominant_color: color_url ? await detectDominantColor(color_url) : undefined
+      }));
+      res.json(withColors);
+    };
+
+    // 1. SearXNG image search (aggregates Bing/Google/DDG images)
     for (const baseUrl of candidateInstances.slice(0, 3)) {
       try {
         const imgSearchUrl = `${baseUrl}/search?q=${encodeURIComponent(queryStr)}&categories=images&pageno=${pageNum}&format=json`;
@@ -1205,57 +1366,103 @@ async function startServer() {
           },
           signal: AbortSignal.timeout(2500)
         });
-        if (response.ok) {
-          const data: any = await response.json();
-          const rawResults = Array.isArray(data?.results) ? data.results : [];
-          const mappedImages = rawResults
-            .filter((r: any) => r && (r.img_src || r.thumbnail_src))
-            .slice(0, 8)
-            .map((r: any, idx: number) => ({
-              url: r.img_src || r.thumbnail_src,
-              alt_text: r.title || queryStr,
-              source_url: r.url || baseUrl,
-              title: r.title || `${queryStr} (${idx + 1})`,
-              dominant_color: colors[(idx + (pageNum - 1) * 3) % colors.length]
-            }));
-          if (mappedImages.length > 0) {
-            res.json(mappedImages);
-            return;
-          }
+        if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) continue;
+        const data: any = await response.json();
+        const rawResults = Array.isArray(data?.results) ? data.results : [];
+        const mappedImages = rawResults
+          .filter((r: any) => r && (r.img_src || r.thumbnail_src))
+          .slice(0, 20)
+          .map((r: any, idx: number) =>
+            toImageItem(
+              { url: r.img_src || r.thumbnail_src, title: r.title, source_url: r.url, color_url: r.thumbnail_src || r.img_src },
+              idx
+            )
+          );
+        if (mappedImages.length > 0) {
+          await sendImages(mappedImages);
+          return;
         }
       } catch (_) {}
     }
 
-    // 2. Fallback to Wikipedia Commons / PageImages API
+    // 2. Openverse (openly licensed images indexed by title, tags and description)
     try {
-      const wikiOffset = (pageNum - 1) * 8;
-      const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(
+      const openverseUrl = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(
         queryStr
-      )}&gsrlimit=8&gsroffset=${wikiOffset}&prop=pageimages|info&inprop=url&pithumbsize=600&format=json&origin=*`;
-      const wikiRes = await fetch(wikiUrl, {
-        headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
-        signal: AbortSignal.timeout(3000)
+      )}&page=${pageNum}&page_size=20&mature=false`;
+      const ovRes = await fetch(openverseUrl, {
+        headers: { Accept: 'application/json', 'User-Agent': 'IsaacSearchEngine/2.0' },
+        signal: AbortSignal.timeout(4000)
       });
-      if (wikiRes.ok) {
-        const wikiData: any = await wikiRes.json();
-        const pages = wikiData?.query?.pages ? Object.values(wikiData.query.pages) : [];
-        const wikiImages = (pages as any[])
-          .filter(p => p?.thumbnail?.source)
-          .map((p, idx) => ({
-            url: p.thumbnail.source,
-            alt_text: p.title || queryStr,
-            source_url: p.fullurl || `https://en.wikipedia.org/?curid=${p.pageid}`,
-            title: p.title || queryStr,
-            dominant_color: colors[(idx + (pageNum - 1) * 3) % colors.length]
-          }));
-        if (wikiImages.length > 0) {
-          res.json(wikiImages);
+      if (ovRes.ok) {
+        const ovData: any = await ovRes.json();
+        const results = Array.isArray(ovData?.results) ? ovData.results : [];
+        const ovImages = results
+          .filter((r: any) => (r?.thumbnail || r?.url) && matchesImageQuery(queryTerms, [
+            r.title,
+            ...(Array.isArray(r.tags) ? r.tags.map((t: any) => t?.name) : [])
+          ]))
+          .map((r: any, idx: number) => {
+            // Prefer the provider's CDN over Openverse's thumbnail proxy, which is
+            // rate limited per IP and starts failing when a whole grid loads at once.
+            const flickr = typeof r.url === 'string' ? flickrSizedUrls(r.url) : null;
+            return toImageItem(
+              {
+                url: flickr?.display || r.thumbnail || r.url,
+                title: r.title,
+                source_url: r.foreign_landing_url,
+                color_url: flickr?.sample || r.thumbnail || r.url
+              },
+              idx
+            );
+          });
+        if (ovImages.length > 0) {
+          await sendImages(ovImages);
           return;
         }
       }
     } catch (_) {}
 
-    res.status(404).json({ error: 'No live images found, use client fallback' });
+    // 3. Wikimedia Commons file search (actual image files, not article lead images)
+    try {
+      const commonsOffset = (pageNum - 1) * 20;
+      const commonsUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(
+        `${queryStr} filetype:bitmap`
+      )}&gsrlimit=20&gsroffset=${commonsOffset}&prop=imageinfo&iiprop=url|mime&iiurlwidth=600&format=json&origin=*`;
+      const commonsRes = await fetch(commonsUrl, {
+        headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
+        signal: AbortSignal.timeout(4000)
+      });
+      if (commonsRes.ok) {
+        const commonsData: any = await commonsRes.json();
+        const pages = commonsData?.query?.pages ? (Object.values(commonsData.query.pages) as any[]) : [];
+        const commonsImages = pages
+          .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+          .map(p => ({ page: p, info: p?.imageinfo?.[0] }))
+          .filter(({ page, info }) =>
+            info &&
+            /^image\/(jpeg|png|webp|gif)$/.test(info.mime || '') &&
+            (info.thumburl || info.url) &&
+            matchesImageQuery(queryTerms, [page.title])
+          )
+          .map(({ page, info }, idx) =>
+            toImageItem(
+              {
+                url: info.thumburl || info.url,
+                title: String(page.title || '').replace(/^File:/, '').replace(/\.[a-z0-9]+$/i, '').replace(/_/g, ' '),
+                source_url: info.descriptionurl
+              },
+              idx
+            )
+          );
+        if (commonsImages.length > 0) {
+          await sendImages(commonsImages);
+          return;
+        }
+      }
+    } catch (_) {}
+
+    res.json([]);
   });
 
   app.get('/api/pages/:id', (req: Request, res: Response) => {

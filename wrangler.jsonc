@@ -1,0 +1,8 @@
+{
+  "name": "issac-2-0",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist"
+  },
+  "previews": {}
+}
