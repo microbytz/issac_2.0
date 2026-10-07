@@ -437,73 +437,7 @@ interface CrawlHistoryItem {
   failed_urls?: FailedUrlInfo[];
 }
 
-const DEFAULT_CRAWL_HISTORY: CrawlHistoryItem[] = [
-  {
-    id: "crawl_run_sched_01",
-    start_url: "https://news.ycombinator.com",
-    status: "completed",
-    pages_crawled: 42,
-    errors: 0,
-    triggered_by: "Cloud Scheduler (Daily Cron)",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 4,
-    time_str: new Date(Date.now() - 3600 * 4 * 1000).toLocaleString(),
-    execution_duration_ms: 14250,
-    memory_peak_mb: 128.4,
-    firestore_docs_written: 42
-  },
-  {
-    id: "crawl_run_cfs_02",
-    start_url: "https://en.wikipedia.org/wiki/Search_engine",
-    status: "completed",
-    pages_crawled: 38,
-    errors: 1,
-    triggered_by: "Cloud Function (Re-index Trigger)",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 28,
-    time_str: new Date(Date.now() - 3600 * 28 * 1000).toLocaleString(),
-    execution_duration_ms: 18900,
-    memory_peak_mb: 142.1,
-    firestore_docs_written: 37
-  },
-  {
-    id: "crawl_run_sched_03",
-    start_url: "https://docs.python.org/3/",
-    status: "partial_success",
-    pages_crawled: 65,
-    errors: 2,
-    triggered_by: "Cloud Scheduler (Weekly Deep Crawl)",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 52,
-    time_str: new Date(Date.now() - 3600 * 52 * 1000).toLocaleString(),
-    execution_duration_ms: 31200,
-    memory_peak_mb: 186.5,
-    firestore_docs_written: 63
-  },
-  {
-    id: "crawl_run_admin_04",
-    start_url: "https://fastapi.tiangolo.com",
-    status: "completed",
-    pages_crawled: 25,
-    errors: 0,
-    triggered_by: "Manual Admin Trigger",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 76,
-    time_str: new Date(Date.now() - 3600 * 76 * 1000).toLocaleString(),
-    execution_duration_ms: 9800,
-    memory_peak_mb: 112.0,
-    firestore_docs_written: 25
-  },
-  {
-    id: "crawl_run_sched_05",
-    start_url: "https://firebase.google.com/docs/firestore",
-    status: "completed",
-    pages_crawled: 50,
-    errors: 0,
-    triggered_by: "Cloud Scheduler (Daily Cron)",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 100,
-    time_str: new Date(Date.now() - 3600 * 100 * 1000).toLocaleString(),
-    execution_duration_ms: 22100,
-    memory_peak_mb: 155.8,
-    firestore_docs_written: 50
-  }
-];
+
 
 function getOrGenerateCrawlLogs(item: CrawlHistoryItem): CrawlLogEntry[] {
   if (item.logs && item.logs.length > 0) {
@@ -2128,7 +2062,7 @@ export default function App() {
   const [scheduleNextRun, setScheduleNextRun] = useState('N/A');
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
   const [isCFSTriggering, setIsCFSTriggering] = useState(false);
-  const [crawlHistory, setCrawlHistory] = useState<CrawlHistoryItem[]>(DEFAULT_CRAWL_HISTORY);
+  const [crawlHistory, setCrawlHistory] = useState<CrawlHistoryItem[]>([]);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
 
   // Visual Log View modal state for scheduled crawl executions
@@ -3520,13 +3454,13 @@ export default function App() {
         if (Array.isArray(data) && data.length > 0) {
           setCrawlHistory(data);
         } else {
-          setCrawlHistory(DEFAULT_CRAWL_HISTORY);
+          setCrawlHistory([]);
         }
       } else {
-        setCrawlHistory(DEFAULT_CRAWL_HISTORY);
+        setCrawlHistory([]);
       }
     } catch (_) {
-      setCrawlHistory(DEFAULT_CRAWL_HISTORY);
+      setCrawlHistory([]);
     }
 
     await fetchTrendMetrics(trendDays);

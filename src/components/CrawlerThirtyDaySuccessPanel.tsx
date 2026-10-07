@@ -53,24 +53,7 @@ export const CrawlerThirtyDaySuccessPanel: React.FC<CrawlerThirtyDaySuccessPanel
         return trendData.slice(-30);
       }
     }
-    // Fallback generator for realistic 30-day historical window
-    const result: TrendDayItem[] = [];
-    const now = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const dateStr = d.toISOString().split('T')[0];
-      const pseudoSeed = (d.getDate() * 13 + (d.getMonth() + 1) * 37 + i * 7) % 100;
-      const hasRun = pseudoSeed > 18;
-      const pages_crawled = hasRun ? (18 + (pseudoSeed * 3) % 52) : 0;
-      const errors = hasRun && pseudoSeed % 4 === 0 ? (1 + pseudoSeed % 4) : 0;
-      result.push({
-        date: dateStr,
-        pages_crawled,
-        errors,
-        run_count: hasRun ? 1 : 0
-      });
-    }
-    return result;
+    return [];
   }, [trendData]);
 
   // Aggregate 30-day statistical metrics
@@ -116,6 +99,8 @@ export const CrawlerThirtyDaySuccessPanel: React.FC<CrawlerThirtyDaySuccessPanel
       statusTheme
     };
   }, [thirtyDayData]);
+
+  const hasTrendData = thirtyDayData.length > 0;
 
   return (
     <div 
@@ -185,6 +170,14 @@ export const CrawlerThirtyDaySuccessPanel: React.FC<CrawlerThirtyDaySuccessPanel
           )}
         </div>
       </div>
+
+      {!hasTrendData && !isFetching && (
+        <div className={`py-8 text-center rounded-xl border text-xs font-mono ${
+          isLight ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-zinc-900/40 border-zinc-800/70 text-zinc-500'
+        }`}>
+          No crawl activity recorded in the last 30 days.
+        </div>
+      )}
 
       {/* 4-Tile Statistical Breakdown Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">

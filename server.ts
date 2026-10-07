@@ -1071,31 +1071,67 @@ async function startServer() {
     res.json({ status: 'triggered' });
   });
 
-  app.get('/api/crawler/common-crawl/search', (req: Request, res: Response) => {
+  let commonCrawlIndexId: string | null = null;
+  let commonCrawlIndexFetchedAt = 0;
+
+  async function getCommonCrawlIndexId(): Promise<string> {
+    // Cache the latest index id for 6 hours
+    if (commonCrawlIndexId && Date.now() - commonCrawlIndexFetchedAt < 6 * 3600 * 1000) {
+      return commonCrawlIndexId;
+    }
+    const infoRes = await fetch('https://index.commoncrawl.org/collinfo.json', {
+      headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!infoRes.ok) throw new Error(`collinfo ${infoRes.status}`);
+    const cols: any = await infoRes.json();
+    const id = Array.isArray(cols) && cols[0]?.id;
+    if (!id || typeof id !== 'string') throw new Error('No Common Crawl index id');
+    commonCrawlIndexId = id;
+    commonCrawlIndexFetchedAt = Date.now();
+    return id;
+  }
+
+  app.get('/api/crawler/common-crawl/search', async (req: Request, res: Response) => {
     const domain = String(req.query.domain || 'example.com')
       .replace(/^https?:\/\//, '')
       .replace(/\/.*$/, '')
       .trim();
     const limit = Math.min(Number(req.query.limit) || 20, 100);
-    const paths = [
-      '',
-      '/docs',
-      '/api',
-      '/architecture',
-      '/benchmarks',
-      '/search-index',
-      '/guide/getting-started',
-      '/blog/engineering',
-      '/reference/configuration',
-      '/faq'
-    ];
-    const urls = paths.slice(0, limit).map((p, i) => ({
-      url: `https://${domain}${p}`,
-      timestamp: `202609${String(10 + (i % 15)).padStart(2, '0')}120000`,
-      mime: 'text/html',
-      status: '200'
-    }));
-    res.json({ domain, urls });
+
+    try {
+      const indexId = await getCommonCrawlIndexId();
+      const ccUrl = `https://index.commoncrawl.org/${indexId}-index?url=${encodeURIComponent(domain + '/*')}&output=json&filter=status:200&matchType=domain&limit=${limit}`;
+      const ccRes = await fetch(ccUrl, {
+        headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
+        signal: AbortSignal.timeout(12000)
+      });
+      if (!ccRes.ok) throw new Error(`commoncrawl ${ccRes.status}`);
+
+      const text = await ccRes.text();
+      const urls = text
+        .split('\n')
+        .filter(line => line.trim().startsWith('{'))
+        .slice(0, limit)
+        .map(line => {
+          try {
+            const rec = JSON.parse(line);
+            return {
+              url: rec.url || '',
+              timestamp: rec.timestamp || '',
+              mime: rec.mime || 'text/html',
+              status: String(rec.status || '200')
+            };
+          } catch (_) {
+            return null;
+          }
+        })
+        .filter((r): r is { url: string; timestamp: string; mime: string; status: string } => !!r && !!r.url);
+
+      res.json({ domain, index: indexId, urls });
+    } catch (_) {
+      res.json({ domain, index: null, urls: [] });
+    }
   });
 
   app.post('/api/crawler/common-crawl/import', requireAdmin, (req: Request, res: Response) => {
