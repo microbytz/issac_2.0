@@ -151,7 +151,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <AnimatePresence>
       <div
         id="settings-modal-backdrop"
-        className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-sm overflow-y-auto"
+        role="dialog" aria-modal="true" aria-label="Settings and privacy" className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-sm overflow-y-auto"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             onClose();
@@ -500,7 +500,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           ? 'bg-slate-50 border-slate-300 text-slate-800'
                           : 'bg-slate-950 border-slate-700 text-slate-200'
                       }`}
-                    />
+                     aria-label="Server URL" />
                     <button
                       onClick={handleSaveServerUrl}
                       type="button"

@@ -414,7 +414,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
                   required
                   rows={2}
                   className="bg-[#070e24] border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500/50 resize-none font-sans leading-relaxed"
-                />
+                 aria-label="e.g. Useful for beginners, watch out for indentation, great libraries" />
 
                 <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
                   <span>{newNoteContent.length}/250 chars</span>

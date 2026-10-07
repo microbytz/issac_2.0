@@ -881,7 +881,7 @@ export const TldDomainCoverageSection: React.FC<TldDomainCoverageSectionProps> =
                 onChange={(e) => setChartFilterQuery(e.target.value)}
                 placeholder="Filter domains (matching bars remain opaque, others dim)..."
                 className="w-full pl-9 pr-8 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl shadow-2xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-slate-800 placeholder:text-slate-400"
-              />
+               aria-label="Filter domains (matching bars remain opaque, others dim)" />
               {chartFilterQuery && (
                 <button
                   type="button"

@@ -352,7 +352,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
+    <div role="dialog" aria-modal="true" aria-label="Manage tags" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
       {/* Backdrop */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -508,7 +508,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-8 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40"
-                />
+                 aria-label="Search tags by keyword" />
                 {searchQuery && (
                   <button
                     type="button"
@@ -564,7 +564,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
                   className="w-full sm:w-auto px-2.5 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer"
-                >
+                 aria-label="Sort tags">
                   <option value="usage_desc">Most Used Pages</option>
                   <option value="usage_asc">Least Used Pages</option>
                   <option value="alpha_asc">Alphabetical (A-Z)</option>
@@ -977,7 +977,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
                       value={mergeTargetExisting}
                       onChange={(e) => setMergeTargetExisting(e.target.value)}
                       className="w-full p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer font-mono"
-                    >
+                     aria-label="Merge into existing tag">
                       {uniqueTagsList.map(t => (
                         <option key={t.key} value={t.name}>
                           #{t.name} ({t.count} pages currently)
@@ -1069,7 +1069,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
                     setRenameNewTag(e.target.value);
                   }}
                   className="w-full p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer font-mono"
-                >
+                 aria-label="Tag to rename">
                   <option value="">-- Choose a tag to rename --</option>
                   {uniqueTagsList.map(t => (
                     <option key={t.key} value={t.name}>
@@ -1174,7 +1174,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
 
       {/* Delete Single Tag Confirmation Modal */}
       {tagPendingDelete && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+        <div role="dialog" aria-modal="true" aria-label="Delete tag" className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-slate-900 border border-red-500/40 p-5 rounded-2xl shadow-2xl flex flex-col gap-4 text-slate-200">
             <div className="flex items-center gap-3 text-red-400">
               <div className="p-2 bg-red-500/20 rounded-xl">
@@ -1211,7 +1211,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
 
       {/* Batch Delete Confirmation Modal */}
       {confirmBatchDeleteOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+        <div role="dialog" aria-modal="true" aria-label="Confirm batch delete" className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-slate-900 border border-red-500/40 p-5 rounded-2xl shadow-2xl flex flex-col gap-4 text-slate-200">
             <div className="flex items-center gap-3 text-red-400">
               <div className="p-2 bg-red-500/20 rounded-xl">

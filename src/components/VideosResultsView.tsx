@@ -243,7 +243,7 @@ export const VideosResultsView: React.FC<VideosResultsViewProps> = ({
       <AnimatePresence>
         {activeVideoModal && (
           <div
-            className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-md animate-fade-in"
+            role="dialog" aria-modal="true" aria-label="Video player" className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-md animate-fade-in"
             onClick={(e) => {
               if (e.target === e.currentTarget) setActiveVideoModal(null);
             }}

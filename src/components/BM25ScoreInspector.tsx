@@ -50,7 +50,7 @@ export const BM25ScoreInspector: React.FC<BM25ScoreInspectorProps> = ({
       />
 
       {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+      <div role="dialog" aria-modal="true" aria-label="BM25 score details" className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
         <motion.div
           initial={{ opacity: 0, scale: 0.94, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}

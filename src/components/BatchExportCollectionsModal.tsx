@@ -146,7 +146,7 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto animate-fade-in">
+    <div role="dialog" aria-modal="true" aria-label="Batch export collections" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto animate-fade-in">
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -362,7 +362,7 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
                       checked={options.includeContent}
                       onChange={(e) => setOptions(prev => ({ ...prev, includeContent: e.target.checked }))}
                       className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
-                    />
+                     aria-label="Include page content" />
                     <div className="flex flex-col">
                       <span className="font-bold text-slate-200">Include Extracted Page Content</span>
                       <span className="text-[11px] text-slate-400">Preserve full text content and cached snippets for offline search and analysis.</span>
@@ -376,7 +376,7 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
                       checked={options.includeNotes}
                       onChange={(e) => setOptions(prev => ({ ...prev, includeNotes: e.target.checked }))}
                       className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
-                    />
+                     aria-label="Include notes" />
                     <div className="flex flex-col">
                       <span className="font-bold text-slate-200">Include Collection Research Notes</span>
                       <span className="text-[11px] text-slate-400">Retain Markdown research notebooks, synthesis notes, and folder memos.</span>
@@ -390,7 +390,7 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
                       checked={options.includeMetadata}
                       onChange={(e) => setOptions(prev => ({ ...prev, includeMetadata: e.target.checked }))}
                       className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
-                    />
+                     aria-label="Include metadata" />
                     <div className="flex flex-col">
                       <span className="font-bold text-slate-200">Include SEO, Tags & Author Metadata</span>
                       <span className="text-[11px] text-slate-400">Save custom category tags, language identifiers, authors, and canonical links.</span>
@@ -404,7 +404,7 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
                       checked={options.includeAnalytics}
                       onChange={(e) => setOptions(prev => ({ ...prev, includeAnalytics: e.target.checked }))}
                       className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
-                    />
+                     aria-label="Include analytics" />
                     <div className="flex flex-col">
                       <span className="font-bold text-slate-200">Include Metrics & Backlink Analytics</span>
                       <span className="text-[11px] text-slate-400">Include PageRank estimates, upvotes, crawl timestamps, and domain frequencies.</span>
@@ -419,7 +419,7 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
                       checked={options.prettyPrint}
                       onChange={(e) => setOptions(prev => ({ ...prev, prettyPrint: e.target.checked }))}
                       className="rounded text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
-                    />
+                     aria-label="Pretty print JSON" />
                     <span className="text-xs font-semibold text-slate-300">Format with readable indentation (2-space pretty-print)</span>
                   </label>
 
@@ -432,7 +432,7 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
                       onChange={(e) => setCustomFilename(e.target.value)}
                       placeholder={masterArchiveResult?.filename || 'isaac_master_collections_backup.json'}
                       className="bg-[#020512] border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200 text-xs outline-none focus:border-emerald-500 transition-colors flex-1 sm:w-64"
-                    />
+                     aria-label="Custom filename" />
                   </div>
                 </div>
               </div>

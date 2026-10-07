@@ -607,7 +607,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
                   className={`text-xs font-bold font-sans rounded-md px-2 py-1 outline-none border ${
                     isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
                   }`}
-                >
+                 aria-label="Convert from unit">
                   {UNITS_REGISTRY.filter(u => u.category === convResult.category).map(u => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.symbol})
@@ -626,7 +626,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
                   handleRecalculateUnits(val, selectedFromUnitId, selectedToUnitId);
                 }}
                 className="w-full text-2xl sm:text-3xl font-black bg-transparent outline-none font-mono text-slate-100"
-              />
+               aria-label="Value to convert" />
             </div>
 
             {/* To Result Card */}
@@ -647,7 +647,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
                   className={`text-xs font-bold font-sans rounded-md px-2 py-1 outline-none border ${
                     isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
                   }`}
-                >
+                 aria-label="Convert to unit">
                   {UNITS_REGISTRY.filter(u => u.category === convResult.category).map(u => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.symbol})
@@ -1056,7 +1056,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
                 onChange={(e) => setPickedColor(e.target.value)}
                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                 title="Click to pick a color"
-              />
+               aria-label="Pick a color" />
             </div>
 
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3 w-full font-mono text-xs">
