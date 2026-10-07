@@ -7110,13 +7110,11 @@ export default function App() {
               role="button"
               tabIndex={0}
             >
-              <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-black text-xs sm:text-sm tracking-wider transition-transform group-hover:scale-105 shrink-0 ${
-                isLight 
-                  ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm'
-                  : 'bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
-              }`}>
-                IS
-              </div>
+              <img
+                src="/logo.png"
+                alt="Isaac Search logo"
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover transition-transform group-hover:scale-105 shrink-0 shadow-sm"
+              />
               <h1 className={`text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight bg-clip-text text-transparent font-sans transition-all duration-300 truncate ${
                 isLight
                   ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700'
