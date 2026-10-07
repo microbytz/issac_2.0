@@ -7629,8 +7629,8 @@ export default function App() {
               </AnimatePresence>
             </div>
 
-            {/* Compact Recent Search Pills */}
-            {searchHistory.length > 0 && (
+            {/* Compact Recent Search Pills (hidden once results are showing) */}
+            {searchHistory.length > 0 && searchResults.length === 0 && (
               <div className="flex flex-wrap items-center gap-2 px-2 text-xs -mt-1 select-none">
                 <span className="text-slate-500 font-mono font-bold flex items-center gap-1 shrink-0">
                   <History className="w-3.5 h-3.5 text-slate-500" />
@@ -7771,6 +7771,25 @@ export default function App() {
                           <option value={5}>Min 5 backlinks</option>
                           <option value={10}>Min 10 backlinks</option>
                           <option value={15}>Min 15 backlinks</option>
+                        </select>
+                      </div>
+
+                      {/* SafeSearch level */}
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-slate-400 font-mono">SafeSearch</label>
+                        <select
+                          value={safeSearchLevel}
+                          onChange={(e) => {
+                            const lvl = e.target.value as SafeSearchLevel;
+                            setSafeSearchLevel(lvl);
+                            setStoredSafeSearch(lvl);
+                            showToast(`SafeSearch set to ${lvl.toUpperCase()}`, 'info');
+                          }}
+                          className="border border-slate-800 focus:ring-2 focus:ring-blue-950 focus:border-blue-500 bg-[#030712] text-slate-200 rounded-xl p-2.5 text-xs outline-none"
+                          aria-label="SafeSearch filter level">
+                          <option value="strict">Strict — filter adult text & media</option>
+                          <option value="moderate">Moderate — filter explicit media</option>
+                          <option value="off">Off</option>
                         </select>
                       </div>
                     </div>
@@ -7987,76 +8006,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* SafeSearch Segment / Dropdown */}
-              <div className="relative pb-1">
-                <button
-                  id="safesearch-toggle-btn"
-                  onClick={() => setShowSafeSearchMenu(prev => !prev)}
-                  type="button"
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-all cursor-pointer ${
-                    safeSearchLevel === 'strict'
-                      ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400'
-                      : safeSearchLevel === 'moderate'
-                      ? 'bg-blue-950/40 border-blue-800/60 text-blue-400'
-                      : 'bg-slate-900/60 border-slate-800 text-slate-400'
-                  }`}
-                  title="Toggle SafeSearch Filtering"
-                >
-                  {safeSearchLevel === 'strict' ? (
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : safeSearchLevel === 'moderate' ? (
-                    <Shield className="w-3.5 h-3.5 text-blue-400" />
-                  ) : (
-                    <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-                  )}
-                  <span>SafeSearch:</span>
-                  <span className="capitalize">{safeSearchLevel}</span>
-                  <ChevronDown className="w-3 h-3 text-slate-400" />
-                </button>
-
-                {showSafeSearchMenu && (
-                  <div
-                    className={`absolute right-0 top-full mt-1.5 w-52 rounded-xl border p-1.5 shadow-xl z-50 animate-fade-in ${
-                      isLight ? 'bg-white border-slate-200' : 'bg-[#090f24] border-slate-800'
-                    }`}
-                  >
-                    <div className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase tracking-wider font-mono">
-                      SafeSearch Filter
-                    </div>
-                    {(['strict', 'moderate', 'off'] as SafeSearchLevel[]).map(lvl => (
-                      <button
-                        key={lvl}
-                        onClick={() => {
-                          setSafeSearchLevel(lvl);
-                          setStoredSafeSearch(lvl);
-                          setShowSafeSearchMenu(false);
-                          showToast(`SafeSearch set to ${lvl.toUpperCase()}`, 'info');
-                        }}
-                        type="button"
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                          safeSearchLevel === lvl
-                            ? 'bg-blue-600/15 text-blue-400 font-bold'
-                            : isLight
-                            ? 'text-slate-700 hover:bg-slate-100'
-                            : 'text-slate-300 hover:bg-slate-800/60'
-                        }`}
-                      >
-                        <div className="flex flex-col text-left">
-                          <span className="capitalize font-bold">{lvl}</span>
-                          <span className="text-[10px] text-slate-400 font-normal">
-                            {lvl === 'strict'
-                              ? 'Filter adult text, images & videos'
-                              : lvl === 'moderate'
-                              ? 'Filter explicit media, allow text'
-                              : 'Turn off SafeSearch filtering'}
-                          </span>
-                        </div>
-                        {safeSearchLevel === lvl && <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Zero-Click Instant Answer Widget (DuckDuckGo style) */}
@@ -8382,15 +8331,6 @@ export default function App() {
                             </button>
                           )
                         )}
-                        {item.cache_hit && (
-                          <span className="px-2 py-0.5 rounded bg-amber-950/20 text-amber-400 border border-amber-900/60 font-mono text-[10px] uppercase font-bold leading-none">
-                            Redis Cached
-                          </span>
-                        )}
-                        <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 font-mono text-[10px] leading-none">
-                          BL: {item.backlinks || 0}
-                        </span>
-
                         {/* Interactive BM25 Relevance Score Badge */}
                         {((item.bm25_score !== undefined && item.bm25_score > 0) || (searchQuery.trim().length > 0)) && (
                           <button
@@ -8630,6 +8570,47 @@ export default function App() {
                                     Block this site from all searchs.
                                   </button>
 
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleReadAloud(item);
+                                      setOpenThreeDotMenuPageId(null);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-left text-slate-300 hover:bg-blue-950/40 hover:text-blue-300 transition-colors cursor-pointer border border-transparent"
+                                  >
+                                    {speakingPageId === item.id ? (
+                                      <VolumeX className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                                    ) : (
+                                      <Volume2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    )}
+                                    {speakingPageId === item.id ? 'Stop reading aloud' : 'Read this result aloud'}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      handleCopyPageUrl(e, item);
+                                      setOpenThreeDotMenuPageId(null);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-left text-slate-300 hover:bg-blue-950/40 hover:text-blue-300 transition-colors cursor-pointer border border-transparent"
+                                  >
+                                    <Share2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    Copy URL to clipboard
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      handleEmailShare(e, item);
+                                      setOpenThreeDotMenuPageId(null);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-left text-slate-300 hover:bg-blue-950/40 hover:text-blue-300 transition-colors cursor-pointer border border-transparent mb-1"
+                                  >
+                                    <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    Share page details via Email
+                                  </button>
+
                                   <div className="text-xs font-bold tracking-wider text-slate-400 uppercase border-t border-b border-slate-800/60 py-1.5 flex items-center justify-between mb-1 mt-1 font-mono">
                                     <span>Add to Project</span>
                                     <Briefcase className="w-3.5 h-3.5 text-blue-400" />
@@ -8715,7 +8696,7 @@ export default function App() {
                           <span className="flex items-center gap-1.5 font-sans text-slate-400">
                             <Tag className="w-3 h-3 text-blue-400 shrink-0" />
                             <span className="flex flex-wrap gap-1">
-                              {item.tags.map((tag, idx) => {
+                              {item.tags.slice(0, 3).map((tag, idx) => {
                                 const isTagActive = selectedSearchTags.includes(tag.toLowerCase().trim());
                                 return (
                                   <button
@@ -8736,6 +8717,19 @@ export default function App() {
                                   </button>
                                 );
                               })}
+                              {item.tags.length > 3 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowTagFilterDrawer(true);
+                                  }}
+                                  title={`${item.tags.length - 3} more tags — open tag filters`}
+                                  className="rounded px-1.5 py-0.5 text-[10px] font-mono transition-all cursor-pointer border border-slate-700 text-slate-400 hover:text-blue-300 hover:border-blue-700"
+                                >
+                                  +{item.tags.length - 3}
+                                </button>
+                              )}
                             </span>
                           </span>
                         )}
@@ -8745,17 +8739,8 @@ export default function App() {
                     {/* Community Notes Section */}
                     <CommunityNotesSection url={item.url} theme={theme} />
 
-                    {/* Footer Stats for detail */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-800/60 pt-3.5 mt-1 text-[11px] text-slate-500 font-mono">
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1.5">
-                          <Database className="w-3.5 h-3.5 text-slate-500" />
-                          ID: {item.id}
-                        </span>
-                        <div className="w-1 h-1 rounded-full bg-slate-800"></div>
-                        <span>Indexed: {item.indexed_at || "N/A"}</span>
-                      </div>
-
+                    {/* Footer actions */}
+                    <div className="flex items-center justify-end gap-3 border-t border-slate-800/60 pt-3.5 mt-1 text-[11px] text-slate-500 font-mono">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         {/* Vote/Like Button */}
                         <button
@@ -8890,85 +8875,6 @@ export default function App() {
                           </AnimatePresence>
                         </div>
 
-                        {/* Read Aloud TTS button */}
-                        <button
-                          type="button"
-                          id={`speak-btn-${item.id}`}
-                          onClick={() => handleReadAloud(item)}
-                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border cursor-pointer transition-all active:scale-95 text-xs font-bold font-sans ${
-                            speakingPageId === item.id
-                              ? 'border-red-500 bg-red-950/25 text-red-400 hover:bg-red-950/40 hover:border-red-400'
-                              : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                          }`}
-                          title={speakingPageId === item.id ? "Stop reading aloud" : "Read this result aloud"}
-                        >
-                          {speakingPageId === item.id ? (
-                            <>
-                              <VolumeX className="w-3.5 h-3.5 text-red-500 animate-pulse" />
-                              <span>Stop</span>
-                            </>
-                          ) : (
-                            <>
-                              <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                              <span>Read Aloud</span>
-                            </>
-                          )}
-                        </button>
-
-                        {/* Copy Share Link button */}
-                        <div className="relative inline-block">
-                          <button
-                            type="button"
-                            id={`copy-url-btn-${item.id}`}
-                            onClick={(e) => handleCopyPageUrl(e, item)}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border cursor-pointer transition-all active:scale-95 text-xs font-bold font-sans ${
-                              copiedPageId === item.id
-                                ? 'border-emerald-500 bg-emerald-950/40 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                                : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                            }`}
-                            title={copiedPageId === item.id ? "URL Copied!" : "Copy reference webpage URL to clipboard"}
-                          >
-                            {copiedPageId === item.id ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-400 animate-bounce" />
-                                <span>URL Copied!</span>
-                              </>
-                            ) : (
-                              <>
-                                <Share2 className="w-3 h-3 text-slate-400" />
-                                <span>Copy</span>
-                              </>
-                            )}
-                          </button>
-
-                          <AnimatePresence>
-                            {copiedPageId === item.id && (
-                              <motion.div
-                                initial={{ opacity: 0, y: 5, scale: 0.9 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: -4, scale: 0.9 }}
-                                transition={{ duration: 0.15 }}
-                                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 bg-emerald-500 text-slate-950 text-[10px] font-extrabold font-mono rounded-lg shadow-xl shadow-emerald-950/80 border border-emerald-300 flex items-center gap-1 whitespace-nowrap z-30 pointer-events-none"
-                              >
-                                <Check className="w-3 h-3 text-slate-950 stroke-[3]" />
-                                <span>URL Copied!</span>
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-emerald-500" />
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-
-                        {/* Share via Email button */}
-                        <button
-                          type="button"
-                          id={`email-share-btn-${item.id}`}
-                          onClick={(e) => handleEmailShare(e, item)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700 cursor-pointer transition-all active:scale-95 text-xs font-bold font-sans"
-                          title="Share page details via Email"
-                        >
-                          <Mail className="w-3 h-3 text-slate-400" />
-                          <span>Email</span>
-                        </button>
 
                         <button
                           type="button"
