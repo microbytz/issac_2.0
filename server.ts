@@ -1375,6 +1375,58 @@ async function startServer() {
     res.status(404).json({ error: 'No live images found, use client fallback' });
   });
 
+  app.get('/api/search/videos', async (req: Request, res: Response) => {
+    const queryStr = String(req.query.q || '').trim();
+    const pageNum = Math.max(1, Number(req.query.page) || 1);
+    if (!queryStr) {
+      res.json([]);
+      return;
+    }
+
+    const customUrl = process.env.SEARXNG_URL?.trim().replace(/\/$/, '');
+    const candidateInstances = customUrl
+      ? [customUrl, ...PUBLIC_SEARXNG_INSTANCES]
+      : [...PUBLIC_SEARXNG_INSTANCES];
+
+    for (const baseUrl of candidateInstances.slice(0, 3)) {
+      try {
+        const vidSearchUrl = `${baseUrl}/search?q=${encodeURIComponent(queryStr)}&categories=videos&pageno=${pageNum}&format=json`;
+        const response = await fetch(vidSearchUrl, {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'IsaacSearchEngine/2.0'
+          },
+          signal: AbortSignal.timeout(2500)
+        });
+        if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) continue;
+        const data: any = await response.json();
+        const rawResults = Array.isArray(data?.results) ? data.results : [];
+        const videos = rawResults
+          .filter((r: any) => r && r.url && r.title)
+          .slice(0, 12)
+          .map((r: any, idx: number) => ({
+            id: `vid_${pageNum}_${idx}`,
+            title: r.title,
+            url: r.url,
+            embedUrl: r.iframe_src || undefined,
+            thumbnail: r.thumbnail || r.img_src || '',
+            channel: r.author || (() => { try { return new URL(r.url).hostname; } catch (_) { return ''; } })(),
+            duration: r.duration || r.length || '',
+            views: '',
+            uploadedAt: r.publishedDate ? String(r.publishedDate).slice(0, 10) : '',
+            snippet: r.content || '',
+            tags: [queryStr.toLowerCase()]
+          }));
+        if (videos.length > 0) {
+          res.json(videos);
+          return;
+        }
+      } catch (_) {}
+    }
+
+    res.json([]);
+  });
+
   app.get('/api/pages/:id', (req: Request, res: Response) => {
     const page = serverIndexedPages.find(p => p.id === req.params.id);
     if (page) {
