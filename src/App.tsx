@@ -3666,59 +3666,8 @@ export default function App() {
         throw new Error('Image search endpoint unreached.');
       }
     } catch (err) {
-      const lowerQ = queryStr.toLowerCase();
-      let topic = "nature";
-      if (lowerQ.includes("flower")) topic = "flower";
-      else if (lowerQ.includes("cat")) topic = "cat";
-      else if (lowerQ.includes("dog")) topic = "dog";
-      else if (lowerQ.includes("space") || lowerQ.includes("planet") || lowerQ.includes("star") || lowerQ.includes("galaxy")) topic = "space";
-      else if (lowerQ.includes("tech") || lowerQ.includes("code") || lowerQ.includes("computer") || lowerQ.includes("hardware") || lowerQ.includes("silicon")) topic = "tech";
-      
-      const topics: Record<string, {id: string, title: string, color: string}[]> = {
-        flower: [
-          {id: "1507525428034-b723cf961d3e", title: "Stunning Pink Cherry Blossoms", color: "pink"},
-          {id: "1463936575829-25148e1db1b8", title: "Yellow Sunflower Fields", color: "yellow"},
-          {id: "1526047932273-341f2a7631f9", title: "Red Roses Bloom", color: "red"},
-          {id: "1518709268805-4e9042af9f23", title: "White Tulips in Spring", color: "white"},
-          {id: "1561181286-d3fee7d55364", title: "Purple Lavender Fields", color: "purple"},
-          {id: "1490730141103-6cac27aaab94", title: "Wildflowers in Meadows", color: "orange"}
-        ],
-        cat: [
-          {id: "1514888286974-6c03e2ca1dba", title: "Playful Ginger Kitten", color: "orange"},
-          {id: "1533738363-b7f9aef128ce", title: "Cute Cat with Glasses", color: "white"},
-          {id: "1573865526739-10659fec78a5", title: "Fluffy Sleeping Tabby", color: "brown"}
-        ],
-        dog: [
-          {id: "1543466835-00a7907e9de1", title: "Happy Golden Retriever", color: "yellow"},
-          {id: "1583511655857-d19b40a7a54e", title: "Charming French Bulldog", color: "black"},
-          {id: "1534361960057-19889db9621e", title: "Alert Beagle Puppy", color: "brown"}
-        ],
-        space: [
-          {id: "1451187580459-43490279c0fa", title: "Deep Planetary Nebula", color: "purple"},
-          {id: "1446776811953-b23d57bd21aa", title: "Earth Seen From Orbit", color: "blue"},
-          {id: "1506318137071-a8e063b4bec0", title: "Starry Night Sky", color: "black"}
-        ],
-        tech: [
-          {id: "1518770660439-4636190af475", title: "Silicon Microchip Circuitry", color: "green"},
-          {id: "1555066931-4365d14bab8c", title: "Developer IDE Code Editor", color: "black"},
-          {id: "1488590528505-98d2b5aba04b", title: "Modern Clean Workspace", color: "white"}
-        ],
-        nature: [
-          {id: "1470071459604-3b5ec3a7fe05", title: "Misty Alpine Forest", color: "green"},
-          {id: "1447752875215-b2761acb3c5d", title: "Rushing Autumn Waterfall", color: "teal"},
-          {id: "1501785888041-af3ef285b470", title: "Serene Mountain Lake View", color: "blue"}
-        ]
-      };
-      
-      const activeItems = topics[topic] || topics["nature"];
-      const mockImgs: ImageItem[] = activeItems.map(item => ({
-        url: `https://images.unsplash.com/photo-${item.id}?auto=format&fit=crop&w=600&q=80`,
-        alt_text: item.title,
-        source_url: `https://unsplash.com/photos/${item.id}`,
-        title: item.title,
-        dominant_color: item.color
-      }));
-      setImageResults(mockImgs);
+      setImageResults([]);
+      showToast('Image search is unavailable right now. Please try again.', 'error');
     } finally {
       setIsImagesLoading(false);
     }
@@ -3736,9 +3685,10 @@ export default function App() {
       return;
     }
 
+    const queryToUse = searchQuery.trim();
+    if (!queryToUse) return;
     setIsLoadingMoreImages(true);
     const nextPage = imagePage + 1;
-    const queryToUse = searchQuery.trim() || 'technology nature architecture space';
 
     try {
       let fetchedImgs: ImageItem[] = [];
@@ -3755,40 +3705,6 @@ export default function App() {
 
       const existingUrls = new Set(imageResults.map(img => img.url));
       const newUniqueImgs = fetchedImgs.filter(img => img.url && !existingUrls.has(img.url));
-
-      const fallbackGalleryPool = [
-        { id: "1451187580459-43490279c0fa", title: "Deep Planetary Nebula", color: "purple" },
-        { id: "1518770660439-4636190af475", title: "Silicon Microchip Circuitry", color: "green" },
-        { id: "1446776811953-b23d57bd21aa", title: "Earth Horizon From Low Orbit", color: "blue" },
-        { id: "1501785888041-af3ef285b470", title: "Glacial Mountain Lake Reflection", color: "teal" },
-        { id: "1555066931-4365d14bab8c", title: "Distributed Systems Code Architecture", color: "black" },
-        { id: "1470071459604-3b5ec3a7fe05", title: "Evergreen Canopy Mist", color: "green" },
-        { id: "1507525428034-b723cf961d3e", title: "Tropical Sunset Coastline", color: "pink" },
-        { id: "1463936575829-25148e1db1b8", title: "Golden Solar Array Field", color: "yellow" },
-        { id: "1526047932273-341f2a7631f9", title: "Crimson Botanical Macro", color: "red" },
-        { id: "1490730141103-6cac27aaab94", title: "Amber Horizon Cloudscape", color: "orange" },
-        { id: "1518709268805-4e9042af9f23", title: "Minimalist White Studio Geometry", color: "white" },
-        { id: "1561181286-d3fee7d55364", title: "Violet Quantum Fiber Optics", color: "purple" }
-      ];
-
-      if (newUniqueImgs.length < 4) {
-        for (const item of fallbackGalleryPool) {
-          const candidateUrl = `https://images.unsplash.com/photo-${item.id}?auto=format&fit=crop&w=600&q=80&p=${nextPage}`;
-          if (!existingUrls.has(candidateUrl) && !existingUrls.has(`https://images.unsplash.com/photo-${item.id}?auto=format&fit=crop&w=600&q=80`)) {
-            if (!selectedColorFilter || item.color === selectedColorFilter) {
-              newUniqueImgs.push({
-                url: candidateUrl,
-                alt_text: `${item.title} (${queryToUse})`,
-                source_url: `https://unsplash.com/photos/${item.id}`,
-                title: `${item.title} — Page ${nextPage}`,
-                dominant_color: item.color
-              });
-              existingUrls.add(candidateUrl);
-            }
-          }
-          if (newUniqueImgs.length >= 6) break;
-        }
-      }
 
       if (newUniqueImgs.length > 0) {
         setImageResults(prev => [...prev, ...newUniqueImgs]);
