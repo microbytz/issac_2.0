@@ -60,6 +60,7 @@ import { calculateWhooshBM25Scores, WHOOSH_FIELD_WEIGHTS, BM25FieldBreakdown } f
 import { downloadCollectionJsonArchive, downloadMasterCollectionsJsonArchive } from './utils/collectionExport';
 import { apiUrl, getBackendBaseUrl, isMobileOrNativeApp, setCustomServerUrl, getCustomServerUrl } from './utils/apiConfig';
 import { fetchClientSideWebResults } from './utils/clientSearchFallback';
+import { fetchClientSideImageResults } from './utils/clientImageFallback';
 
 // Dynamic API base: resolves to deployed Cloud Run server URL in mobile/Capacitor, or relative /api in browser
 const API_BASE = apiUrl('/api');
@@ -3666,6 +3667,14 @@ export default function App() {
         throw new Error('Image search endpoint unreached.');
       }
     } catch (err) {
+      // Backend unreached (static deploy / offline): query open image APIs directly.
+      try {
+        const directImages = await fetchClientSideImageResults(queryStr, 1);
+        if (directImages.length > 0) {
+          setImageResults(directImages);
+          return;
+        }
+      } catch (_) {}
       setImageResults([]);
       showToast('Image search is unavailable right now. Please try again.', 'error');
     } finally {
@@ -3702,6 +3711,13 @@ export default function App() {
           }
         }
       } catch (_) {}
+
+      if (fetchedImgs.length === 0) {
+        // Backend unreached: page the open image APIs directly instead.
+        try {
+          fetchedImgs = await fetchClientSideImageResults(queryToUse, nextPage);
+        } catch (_) {}
+      }
 
       const existingUrls = new Set(imageResults.map(img => img.url));
       const newUniqueImgs = fetchedImgs.filter(img => img.url && !existingUrls.has(img.url));
