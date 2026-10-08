@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useFocusTrap } from './hooks/useFocusTrap';
 import * as d3 from 'd3';
 import { 
   Search, Sparkles, History, Globe, Database, HelpCircle, 
@@ -437,73 +438,7 @@ interface CrawlHistoryItem {
   failed_urls?: FailedUrlInfo[];
 }
 
-const DEFAULT_CRAWL_HISTORY: CrawlHistoryItem[] = [
-  {
-    id: "crawl_run_sched_01",
-    start_url: "https://news.ycombinator.com",
-    status: "completed",
-    pages_crawled: 42,
-    errors: 0,
-    triggered_by: "Cloud Scheduler (Daily Cron)",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 4,
-    time_str: new Date(Date.now() - 3600 * 4 * 1000).toLocaleString(),
-    execution_duration_ms: 14250,
-    memory_peak_mb: 128.4,
-    firestore_docs_written: 42
-  },
-  {
-    id: "crawl_run_cfs_02",
-    start_url: "https://en.wikipedia.org/wiki/Search_engine",
-    status: "completed",
-    pages_crawled: 38,
-    errors: 1,
-    triggered_by: "Cloud Function (Re-index Trigger)",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 28,
-    time_str: new Date(Date.now() - 3600 * 28 * 1000).toLocaleString(),
-    execution_duration_ms: 18900,
-    memory_peak_mb: 142.1,
-    firestore_docs_written: 37
-  },
-  {
-    id: "crawl_run_sched_03",
-    start_url: "https://docs.python.org/3/",
-    status: "partial_success",
-    pages_crawled: 65,
-    errors: 2,
-    triggered_by: "Cloud Scheduler (Weekly Deep Crawl)",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 52,
-    time_str: new Date(Date.now() - 3600 * 52 * 1000).toLocaleString(),
-    execution_duration_ms: 31200,
-    memory_peak_mb: 186.5,
-    firestore_docs_written: 63
-  },
-  {
-    id: "crawl_run_admin_04",
-    start_url: "https://fastapi.tiangolo.com",
-    status: "completed",
-    pages_crawled: 25,
-    errors: 0,
-    triggered_by: "Manual Admin Trigger",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 76,
-    time_str: new Date(Date.now() - 3600 * 76 * 1000).toLocaleString(),
-    execution_duration_ms: 9800,
-    memory_peak_mb: 112.0,
-    firestore_docs_written: 25
-  },
-  {
-    id: "crawl_run_sched_05",
-    start_url: "https://firebase.google.com/docs/firestore",
-    status: "completed",
-    pages_crawled: 50,
-    errors: 0,
-    triggered_by: "Cloud Scheduler (Daily Cron)",
-    timestamp: Math.floor(Date.now() / 1000) - 3600 * 100,
-    time_str: new Date(Date.now() - 3600 * 100 * 1000).toLocaleString(),
-    execution_duration_ms: 22100,
-    memory_peak_mb: 155.8,
-    firestore_docs_written: 50
-  }
-];
+
 
 function getOrGenerateCrawlLogs(item: CrawlHistoryItem): CrawlLogEntry[] {
   if (item.logs && item.logs.length > 0) {
@@ -1290,6 +1225,7 @@ const getLanguageColorInfo = (lang?: string) => {
 };
 
 export default function App() {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   // Theme state
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
@@ -1544,10 +1480,8 @@ export default function App() {
     setLocalNotes,
     lastSaved,
     isSaving
-  } = useNotebookAutosave(selectedProjectId, activeProjectNotes, (notesText) => {
-    if (selectedProjectId) {
-      handleUpdateProjectNotes(selectedProjectId, notesText);
-    }
+  } = useNotebookAutosave(selectedProjectId, activeProjectNotes, (notesText, projId) => {
+    handleUpdateProjectNotes(projId, notesText);
   });
 
   const [activeSavePageId, setActiveSavePageId] = useState<string | null>(null);
@@ -2130,7 +2064,7 @@ export default function App() {
   const [scheduleNextRun, setScheduleNextRun] = useState('N/A');
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
   const [isCFSTriggering, setIsCFSTriggering] = useState(false);
-  const [crawlHistory, setCrawlHistory] = useState<CrawlHistoryItem[]>(DEFAULT_CRAWL_HISTORY);
+  const [crawlHistory, setCrawlHistory] = useState<CrawlHistoryItem[]>([]);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
 
   // Visual Log View modal state for scheduled crawl executions
@@ -3522,13 +3456,13 @@ export default function App() {
         if (Array.isArray(data) && data.length > 0) {
           setCrawlHistory(data);
         } else {
-          setCrawlHistory(DEFAULT_CRAWL_HISTORY);
+          setCrawlHistory([]);
         }
       } else {
-        setCrawlHistory(DEFAULT_CRAWL_HISTORY);
+        setCrawlHistory([]);
       }
     } catch (_) {
-      setCrawlHistory(DEFAULT_CRAWL_HISTORY);
+      setCrawlHistory([]);
     }
 
     await fetchTrendMetrics(trendDays);
@@ -7092,13 +7026,11 @@ export default function App() {
               role="button"
               tabIndex={0}
             >
-              <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-black text-xs sm:text-sm tracking-wider transition-transform group-hover:scale-105 shrink-0 ${
-                isLight 
-                  ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm'
-                  : 'bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
-              }`}>
-                IS
-              </div>
+              <img
+                src="/logo.png"
+                alt="Isaac Search logo"
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover transition-transform group-hover:scale-105 shrink-0 shadow-sm"
+              />
               <h1 className={`text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight bg-clip-text text-transparent font-sans transition-all duration-300 truncate ${
                 isLight
                   ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700'
@@ -7180,7 +7112,7 @@ export default function App() {
           </div>
 
           {/* Navigation Controls (Circular and Rounder Cards) */}
-          <nav className="flex items-center justify-start sm:justify-center gap-2 sm:gap-3.5 mt-1 w-full max-w-full overflow-x-auto no-scrollbar pb-2 sm:pb-0 px-2 sm:px-0">
+          <nav aria-label="Main navigation" className="flex items-center justify-start sm:justify-center gap-2 sm:gap-3.5 mt-1 w-full max-w-full overflow-x-auto no-scrollbar pb-2 sm:pb-0 px-2 sm:px-0">
             <button 
               id="nav-search-btn"
               onClick={() => setActiveTab('search')}
@@ -7405,7 +7337,7 @@ export default function App() {
                       ? 'text-slate-800 placeholder:text-slate-400' 
                       : 'text-slate-100 placeholder:text-slate-500'
                   }`}
-                />
+                 aria-label="Ask anything or enter site queries (try 'fastapi', 'firestore', 'whoosh')" />
                 
                 {/* Visual indicator of keyboard shortcut '/' to focus */}
                 {!searchQuery && (
@@ -7613,8 +7545,8 @@ export default function App() {
               </AnimatePresence>
             </div>
 
-            {/* Compact Recent Search Pills */}
-            {searchHistory.length > 0 && (
+            {/* Compact Recent Search Pills (hidden once results are showing) */}
+            {searchHistory.length > 0 && searchResults.length === 0 && (
               <div className="flex flex-wrap items-center gap-2 px-2 text-xs -mt-1 select-none">
                 <span className="text-slate-500 font-mono font-bold flex items-center gap-1 shrink-0">
                   <History className="w-3.5 h-3.5 text-slate-500" />
@@ -7723,7 +7655,7 @@ export default function App() {
                           value={filterDomain}
                           onChange={(e) => setFilterDomain(e.target.value)}
                           className="border border-slate-800 focus:ring-2 focus:ring-blue-950 focus:border-blue-500 bg-[#030712] text-slate-200 rounded-xl p-2.5 text-xs outline-none"
-                        />
+                         aria-label="e.g. ycombinator.com" />
                       </div>
 
                       {/* Date Range Dropdown */}
@@ -7733,7 +7665,7 @@ export default function App() {
                           value={filterDateRange}
                           onChange={(e) => setFilterDateRange(e.target.value as any)}
                           className="border border-slate-800 focus:ring-2 focus:ring-blue-950 focus:border-blue-500 bg-[#030712] text-slate-200 rounded-xl p-2.5 text-xs outline-none font-sans"
-                        >
+                         aria-label="Filter by date range">
                           <option value="any">Any time</option>
                           <option value="24h">Past 24 hours</option>
                           <option value="7d">Past week</option>
@@ -7750,11 +7682,30 @@ export default function App() {
                           value={filterMinBacklinks}
                           onChange={(e) => setFilterMinBacklinks(Number(e.target.value))}
                           className="border border-slate-800 focus:ring-2 focus:ring-blue-950 focus:border-blue-500 bg-[#030712] text-slate-200 rounded-xl p-2.5 text-xs outline-none"
-                        >
+                         aria-label="Minimum backlinks filter">
                           <option value={0}>Any count (default)</option>
                           <option value={5}>Min 5 backlinks</option>
                           <option value={10}>Min 10 backlinks</option>
                           <option value={15}>Min 15 backlinks</option>
+                        </select>
+                      </div>
+
+                      {/* SafeSearch level */}
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-slate-400 font-mono">SafeSearch</label>
+                        <select
+                          value={safeSearchLevel}
+                          onChange={(e) => {
+                            const lvl = e.target.value as SafeSearchLevel;
+                            setSafeSearchLevel(lvl);
+                            setStoredSafeSearch(lvl);
+                            showToast(`SafeSearch set to ${lvl.toUpperCase()}`, 'info');
+                          }}
+                          className="border border-slate-800 focus:ring-2 focus:ring-blue-950 focus:border-blue-500 bg-[#030712] text-slate-200 rounded-xl p-2.5 text-xs outline-none"
+                          aria-label="SafeSearch filter level">
+                          <option value="strict">Strict — filter adult text & media</option>
+                          <option value="moderate">Moderate — filter explicit media</option>
+                          <option value="off">Off</option>
                         </select>
                       </div>
                     </div>
@@ -7769,7 +7720,7 @@ export default function App() {
                             value={filterStartDate}
                             onChange={(e) => setFilterStartDate(e.target.value)}
                             className="border border-slate-800 focus:ring-2 focus:ring-blue-950 focus:border-blue-500 bg-[#030712] text-slate-200 rounded-xl p-2 px-3 text-xs outline-none"
-                          />
+                           aria-label="Start date filter" />
                         </div>
                         <div className="flex flex-col gap-1.5">
                           <label className="text-xs font-bold text-slate-400 font-mono">End Date</label>
@@ -7778,7 +7729,7 @@ export default function App() {
                             value={filterEndDate}
                             onChange={(e) => setFilterEndDate(e.target.value)}
                             className="border border-slate-800 focus:ring-2 focus:ring-blue-950 focus:border-blue-500 bg-[#030712] text-slate-200 rounded-xl p-2 px-3 text-xs outline-none"
-                          />
+                           aria-label="End date filter" />
                         </div>
                       </div>
                     )}
@@ -7859,7 +7810,7 @@ export default function App() {
                           value={sortBy}
                           onChange={(e) => handleUpdateSortBy(e.target.value as any)}
                           className="border border-slate-800 bg-[#030712] p-1 px-2.5 rounded outline-none font-sans font-medium text-slate-300"
-                        >
+                         aria-label="Sort results">
                           <option value="relevance">🎯 Relevance (BM25 Whoosh)</option>
                           <option value="likes_desc">👍 Likes: High to Low</option>
                           <option value="date_desc">📅 Date: Newest First</option>
@@ -7971,76 +7922,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* SafeSearch Segment / Dropdown */}
-              <div className="relative pb-1">
-                <button
-                  id="safesearch-toggle-btn"
-                  onClick={() => setShowSafeSearchMenu(prev => !prev)}
-                  type="button"
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-all cursor-pointer ${
-                    safeSearchLevel === 'strict'
-                      ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400'
-                      : safeSearchLevel === 'moderate'
-                      ? 'bg-blue-950/40 border-blue-800/60 text-blue-400'
-                      : 'bg-slate-900/60 border-slate-800 text-slate-400'
-                  }`}
-                  title="Toggle SafeSearch Filtering"
-                >
-                  {safeSearchLevel === 'strict' ? (
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : safeSearchLevel === 'moderate' ? (
-                    <Shield className="w-3.5 h-3.5 text-blue-400" />
-                  ) : (
-                    <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-                  )}
-                  <span>SafeSearch:</span>
-                  <span className="capitalize">{safeSearchLevel}</span>
-                  <ChevronDown className="w-3 h-3 text-slate-400" />
-                </button>
-
-                {showSafeSearchMenu && (
-                  <div
-                    className={`absolute right-0 top-full mt-1.5 w-52 rounded-xl border p-1.5 shadow-xl z-50 animate-fade-in ${
-                      isLight ? 'bg-white border-slate-200' : 'bg-[#090f24] border-slate-800'
-                    }`}
-                  >
-                    <div className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase tracking-wider font-mono">
-                      SafeSearch Filter
-                    </div>
-                    {(['strict', 'moderate', 'off'] as SafeSearchLevel[]).map(lvl => (
-                      <button
-                        key={lvl}
-                        onClick={() => {
-                          setSafeSearchLevel(lvl);
-                          setStoredSafeSearch(lvl);
-                          setShowSafeSearchMenu(false);
-                          showToast(`SafeSearch set to ${lvl.toUpperCase()}`, 'info');
-                        }}
-                        type="button"
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                          safeSearchLevel === lvl
-                            ? 'bg-blue-600/15 text-blue-400 font-bold'
-                            : isLight
-                            ? 'text-slate-700 hover:bg-slate-100'
-                            : 'text-slate-300 hover:bg-slate-800/60'
-                        }`}
-                      >
-                        <div className="flex flex-col text-left">
-                          <span className="capitalize font-bold">{lvl}</span>
-                          <span className="text-[10px] text-slate-400 font-normal">
-                            {lvl === 'strict'
-                              ? 'Filter adult text, images & videos'
-                              : lvl === 'moderate'
-                              ? 'Filter explicit media, allow text'
-                              : 'Turn off SafeSearch filtering'}
-                          </span>
-                        </div>
-                        {safeSearchLevel === lvl && <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Zero-Click Instant Answer Widget (DuckDuckGo style) */}
@@ -8097,33 +7978,6 @@ export default function App() {
                             <option value="title_desc" className="bg-[#091332]">Z to A</option>
                           </select>
                         </div>
-
-                        {/* Dedicated Tag Filter Button */}
-                        {availableSearchTags.length > 0 && (
-                          <button
-                            id="open-tag-filter-btn"
-                            type="button"
-                            onClick={() => setShowTagFilterDrawer(prev => !prev)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all cursor-pointer active:scale-95 ${
-                              selectedSearchTags.length > 0
-                                ? 'bg-blue-600 text-white border-blue-400 shadow-sm shadow-blue-950/50'
-                                : 'bg-[#070e24]/70 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
-                            }`}
-                            title="Open Tag Filter Drawer"
-                          >
-                            <Tags className="w-3.5 h-3.5" />
-                            <span>Tags</span>
-                            {selectedSearchTags.length > 0 ? (
-                              <span className="px-1.5 py-0.2 rounded-full bg-blue-700 text-blue-100 text-[10px]">
-                                {selectedSearchTags.length}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 font-normal">
-                                ({availableSearchTags.length})
-                              </span>
-                            )}
-                          </button>
-                        )}
 
                         {/* Refine Tools Toggle (Search within results, web fallback) */}
                         <button
@@ -8211,7 +8065,7 @@ export default function App() {
                                 value={searchWithinQuery}
                                 onChange={(e) => setSearchWithinQuery(e.target.value)}
                                 className="w-full pl-9 pr-14 py-2 bg-[#030712] border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:border-blue-500"
-                              />
+                               aria-label="Filter results by keyword in title, snippet, or URL" />
                               {searchWithinQuery && (
                                 <button
                                   type="button"
@@ -8393,15 +8247,6 @@ export default function App() {
                             </button>
                           )
                         )}
-                        {item.cache_hit && (
-                          <span className="px-2 py-0.5 rounded bg-amber-950/20 text-amber-400 border border-amber-900/60 font-mono text-[10px] uppercase font-bold leading-none">
-                            Redis Cached
-                          </span>
-                        )}
-                        <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 font-mono text-[10px] leading-none">
-                          BL: {item.backlinks || 0}
-                        </span>
-
                         {/* Interactive BM25 Relevance Score Badge */}
                         {((item.bm25_score !== undefined && item.bm25_score > 0) || (searchQuery.trim().length > 0)) && (
                           <button
@@ -8523,7 +8368,7 @@ export default function App() {
                                           }
                                         }}
                                         className="bg-[#030712] border border-slate-800 rounded-md p-1 px-2 text-xs text-slate-200 outline-none w-full"
-                                      />
+                                       aria-label="AI, Programming" />
                                       <button
                                         type="button"
                                         onClick={() => {
@@ -8641,6 +8486,47 @@ export default function App() {
                                     Block this site from all searchs.
                                   </button>
 
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleReadAloud(item);
+                                      setOpenThreeDotMenuPageId(null);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-left text-slate-300 hover:bg-blue-950/40 hover:text-blue-300 transition-colors cursor-pointer border border-transparent"
+                                  >
+                                    {speakingPageId === item.id ? (
+                                      <VolumeX className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                                    ) : (
+                                      <Volume2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    )}
+                                    {speakingPageId === item.id ? 'Stop reading aloud' : 'Read this result aloud'}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      handleCopyPageUrl(e, item);
+                                      setOpenThreeDotMenuPageId(null);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-left text-slate-300 hover:bg-blue-950/40 hover:text-blue-300 transition-colors cursor-pointer border border-transparent"
+                                  >
+                                    <Share2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    Copy URL to clipboard
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      handleEmailShare(e, item);
+                                      setOpenThreeDotMenuPageId(null);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-left text-slate-300 hover:bg-blue-950/40 hover:text-blue-300 transition-colors cursor-pointer border border-transparent mb-1"
+                                  >
+                                    <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    Share page details via Email
+                                  </button>
+
                                   <div className="text-xs font-bold tracking-wider text-slate-400 uppercase border-t border-b border-slate-800/60 py-1.5 flex items-center justify-between mb-1 mt-1 font-mono">
                                     <span>Add to Project</span>
                                     <Briefcase className="w-3.5 h-3.5 text-blue-400" />
@@ -8726,7 +8612,7 @@ export default function App() {
                           <span className="flex items-center gap-1.5 font-sans text-slate-400">
                             <Tag className="w-3 h-3 text-blue-400 shrink-0" />
                             <span className="flex flex-wrap gap-1">
-                              {item.tags.map((tag, idx) => {
+                              {item.tags.slice(0, 3).map((tag, idx) => {
                                 const isTagActive = selectedSearchTags.includes(tag.toLowerCase().trim());
                                 return (
                                   <button
@@ -8747,6 +8633,19 @@ export default function App() {
                                   </button>
                                 );
                               })}
+                              {item.tags.length > 3 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowTagFilterDrawer(true);
+                                  }}
+                                  title={`${item.tags.length - 3} more tags — open tag filters`}
+                                  className="rounded px-1.5 py-0.5 text-[10px] font-mono transition-all cursor-pointer border border-slate-700 text-slate-400 hover:text-blue-300 hover:border-blue-700"
+                                >
+                                  +{item.tags.length - 3}
+                                </button>
+                              )}
                             </span>
                           </span>
                         )}
@@ -8756,17 +8655,8 @@ export default function App() {
                     {/* Community Notes Section */}
                     <CommunityNotesSection url={item.url} theme={theme} />
 
-                    {/* Footer Stats for detail */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-800/60 pt-3.5 mt-1 text-[11px] text-slate-500 font-mono">
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1.5">
-                          <Database className="w-3.5 h-3.5 text-slate-500" />
-                          ID: {item.id}
-                        </span>
-                        <div className="w-1 h-1 rounded-full bg-slate-800"></div>
-                        <span>Indexed: {item.indexed_at || "N/A"}</span>
-                      </div>
-
+                    {/* Footer actions */}
+                    <div className="flex items-center justify-end gap-3 border-t border-slate-800/60 pt-3.5 mt-1 text-[11px] text-slate-500 font-mono">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         {/* Vote/Like Button */}
                         <button
@@ -8880,7 +8770,7 @@ export default function App() {
                                           }
                                         }}
                                         className="bg-[#030712] border border-slate-800 rounded-md p-1 px-2 text-xs text-slate-200 outline-none w-full"
-                                      />
+                                       aria-label="AI, Programming" />
                                       <button
                                         type="button"
                                         onClick={() => {
@@ -8901,85 +8791,6 @@ export default function App() {
                           </AnimatePresence>
                         </div>
 
-                        {/* Read Aloud TTS button */}
-                        <button
-                          type="button"
-                          id={`speak-btn-${item.id}`}
-                          onClick={() => handleReadAloud(item)}
-                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border cursor-pointer transition-all active:scale-95 text-xs font-bold font-sans ${
-                            speakingPageId === item.id
-                              ? 'border-red-500 bg-red-950/25 text-red-400 hover:bg-red-950/40 hover:border-red-400'
-                              : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                          }`}
-                          title={speakingPageId === item.id ? "Stop reading aloud" : "Read this result aloud"}
-                        >
-                          {speakingPageId === item.id ? (
-                            <>
-                              <VolumeX className="w-3.5 h-3.5 text-red-500 animate-pulse" />
-                              <span>Stop</span>
-                            </>
-                          ) : (
-                            <>
-                              <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                              <span>Read Aloud</span>
-                            </>
-                          )}
-                        </button>
-
-                        {/* Copy Share Link button */}
-                        <div className="relative inline-block">
-                          <button
-                            type="button"
-                            id={`copy-url-btn-${item.id}`}
-                            onClick={(e) => handleCopyPageUrl(e, item)}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border cursor-pointer transition-all active:scale-95 text-xs font-bold font-sans ${
-                              copiedPageId === item.id
-                                ? 'border-emerald-500 bg-emerald-950/40 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                                : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                            }`}
-                            title={copiedPageId === item.id ? "URL Copied!" : "Copy reference webpage URL to clipboard"}
-                          >
-                            {copiedPageId === item.id ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-400 animate-bounce" />
-                                <span>URL Copied!</span>
-                              </>
-                            ) : (
-                              <>
-                                <Share2 className="w-3 h-3 text-slate-400" />
-                                <span>Copy</span>
-                              </>
-                            )}
-                          </button>
-
-                          <AnimatePresence>
-                            {copiedPageId === item.id && (
-                              <motion.div
-                                initial={{ opacity: 0, y: 5, scale: 0.9 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: -4, scale: 0.9 }}
-                                transition={{ duration: 0.15 }}
-                                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 bg-emerald-500 text-slate-950 text-[10px] font-extrabold font-mono rounded-lg shadow-xl shadow-emerald-950/80 border border-emerald-300 flex items-center gap-1 whitespace-nowrap z-30 pointer-events-none"
-                              >
-                                <Check className="w-3 h-3 text-slate-950 stroke-[3]" />
-                                <span>URL Copied!</span>
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-emerald-500" />
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-
-                        {/* Share via Email button */}
-                        <button
-                          type="button"
-                          id={`email-share-btn-${item.id}`}
-                          onClick={(e) => handleEmailShare(e, item)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700 cursor-pointer transition-all active:scale-95 text-xs font-bold font-sans"
-                          title="Share page details via Email"
-                        >
-                          <Mail className="w-3 h-3 text-slate-400" />
-                          <span>Email</span>
-                        </button>
 
                         <button
                           type="button"
@@ -9699,7 +9510,7 @@ export default function App() {
                           value={scheduleInterval}
                           onChange={(e) => handleSaveSchedule(scheduleEnabled, e.target.value as 'daily' | 'weekly', scheduleStartUrl)}
                           className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50 rounded-xl p-2.5 text-xs outline-none disabled:bg-slate-100 disabled:text-slate-400 text-slate-700 font-sans"
-                        >
+                         aria-label="Crawl schedule interval">
                           <option value="daily">Daily Crawl (Every 24 hours)</option>
                           <option value="weekly">Weekly Crawl (Every Sunday at 00:00)</option>
                         </select>
@@ -9716,7 +9527,7 @@ export default function App() {
                           onChange={(e) => setScheduleStartUrl(e.target.value)}
                           onBlur={() => handleSaveSchedule(scheduleEnabled, scheduleInterval, scheduleStartUrl)}
                           className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50 rounded-xl p-2.5 text-xs outline-none disabled:bg-slate-100 disabled:text-slate-400 text-slate-750 font-mono"
-                        />
+                         aria-label="e.g. https://news.ycombinator.com" />
                       </div>
                     </div>
 
@@ -9795,7 +9606,7 @@ export default function App() {
                         value={ccDomain}
                         onChange={(e) => setCcDomain(e.target.value)}
                         className="w-full border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white rounded-xl p-2.5 text-xs outline-none font-mono"
-                      />
+                       aria-label="e.g. news.ycombinator.com" />
                     </div>
 
                     <div className="w-full md:w-36 flex flex-col gap-1.5">
@@ -9804,7 +9615,7 @@ export default function App() {
                         value={ccLimit}
                         onChange={(e) => setCcLimit(Number(e.target.value))}
                         className="w-full border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white rounded-xl p-2.5 text-xs outline-none cursor-pointer text-slate-700 font-sans"
-                      >
+                       aria-label="Common Crawl result limit">
                         <option value={10}>10 URLs</option>
                         <option value={25}>25 URLs</option>
                         <option value={50}>50 URLs</option>
@@ -9882,7 +9693,7 @@ export default function App() {
                             value={ccFilterText}
                             onChange={(e) => setCcFilterText(e.target.value)}
                             className="border border-slate-200 focus:ring-1 focus:ring-blue-100 focus:border-blue-400 bg-slate-50/50 rounded-lg px-2.5 py-1 text-[11px] outline-none max-w-[180px] font-sans"
-                          />
+                           aria-label="Filter found URLs" />
                           <button
                             type="button"
                             onClick={handleImportCommonCrawlSeeds}
@@ -9909,7 +9720,7 @@ export default function App() {
                                   checked={filteredCcResults.length > 0 && filteredCcResults.every(r => ccSelectedUrls.includes(r.url))}
                                   onChange={handleToggleSelectAllCcUrls}
                                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
-                                />
+                                 aria-label="Select URL to import" />
                               </th>
                               <th className="p-3">HTML page url path</th>
                               <th className="p-3 w-28 text-center">Status</th>
@@ -9930,7 +9741,7 @@ export default function App() {
                                       checked={isSelected}
                                       onChange={() => handleToggleCcUrl(rec.url)}
                                       className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
-                                    />
+                                     aria-label="Select URL to import" />
                                   </td>
                                   <td className="p-3 max-w-0 truncate text-slate-700 select-all" title={rec.url}>
                                     <div className="flex items-center gap-1.5">
@@ -10079,7 +9890,7 @@ export default function App() {
                         value={newUrl}
                         onChange={(e) => setNewUrl(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none font-mono"
-                      />
+                       aria-label="https://example.com/topic" />
                     </div>
 
                     {/* Canonical URL Field */}
@@ -10106,7 +9917,7 @@ export default function App() {
                         value={newCanonicalUrl}
                         onChange={(e) => setNewCanonicalUrl(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none font-mono text-[11px]"
-                      />
+                       aria-label="https://example.com/canonical-topic-url" />
                       <p className="text-[10px] text-slate-400 font-sans leading-tight">
                         Authoritative source link stored in page metadata for Whoosh indexing and SEO deduplication (&lt;link rel="canonical"&gt;).
                       </p>
@@ -10120,7 +9931,7 @@ export default function App() {
                         value={newTitle}
                         onChange={(e) => setNewTitle(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none"
-                      />
+                       aria-label="Example Topic Title" />
                     </div>
 
                     <div className="flex flex-col gap-1.5">
@@ -10131,7 +9942,7 @@ export default function App() {
                         value={newSnippet}
                         onChange={(e) => setNewSnippet(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none"
-                      />
+                       aria-label="Enter abstract description" />
                     </div>
 
                     <div className="flex flex-col gap-1.5">
@@ -10142,7 +9953,7 @@ export default function App() {
                         value={newContent}
                         onChange={(e) => setNewContent(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none font-mono text-[11px]"
-                      ></textarea>
+                       aria-label="Full page body parsed text"></textarea>
                     </div>
 
                     {/* Meta Description (Whoosh) */}
@@ -10178,7 +9989,7 @@ export default function App() {
                         value={newMetaDescription}
                         onChange={(e) => setNewMetaDescription(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none"
-                      ></textarea>
+                       aria-label="Meta description HTML tag or custom Whoosh index summary"></textarea>
                     </div>
 
                     {/* Keywords (Whoosh Indexing) */}
@@ -10193,7 +10004,7 @@ export default function App() {
                         value={newKeywordsStr}
                         onChange={(e) => setNewKeywordsStr(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none"
-                      />
+                       aria-label="e.g. search engine, whoosh, python, crawler" />
                     </div>
 
                     {/* Optional Custom Metadata */}
@@ -10206,7 +10017,7 @@ export default function App() {
                           value={newAuthor}
                           onChange={(e) => setNewAuthor(e.target.value)}
                           className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none"
-                        />
+                         aria-label="e.g. John Doe" />
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-bold text-slate-600 font-mono">Language (Optional)</label>
@@ -10216,7 +10027,7 @@ export default function App() {
                           value={newLanguage}
                           onChange={(e) => setNewLanguage(e.target.value)}
                           className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none"
-                        />
+                         aria-label="e.g. English" />
                       </div>
                     </div>
 
@@ -10330,7 +10141,7 @@ export default function App() {
                         value={imgUrl}
                         onChange={(e) => setImgUrl(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none font-mono"
-                      />
+                       aria-label="https://example.com/banner.png" />
                     </div>
 
                     <div className="flex flex-col gap-1.5">
@@ -10342,7 +10153,7 @@ export default function App() {
                         value={imgAlt}
                         onChange={(e) => setImgAlt(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none"
-                      />
+                       aria-label="e.g. Minimalist layout vector" />
                     </div>
 
                     <div className="flex flex-col gap-1.5">
@@ -10354,7 +10165,7 @@ export default function App() {
                         value={imgSrcUrl}
                         onChange={(e) => setImgSrcUrl(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none font-mono"
-                      />
+                       aria-label="https://example.com/parent_page" />
                     </div>
 
                     <div className="flex flex-col gap-1.5 font-sans">
@@ -10365,7 +10176,7 @@ export default function App() {
                         value={imgTitle}
                         onChange={(e) => setImgTitle(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none"
-                      />
+                       aria-label="e.g. Header Splash Banner" />
                     </div>
 
                     <div className="flex flex-col gap-1.5 font-sans">
@@ -10374,7 +10185,7 @@ export default function App() {
                         value={imgDominantColor}
                         onChange={(e) => setImgDominantColor(e.target.value)}
                         className="border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl p-2.5 text-xs outline-none cursor-pointer text-slate-700 font-sans"
-                      >
+                       aria-label="Filter images by dominant color">
                         <option value="">🔮 Auto-detect / Infer dynamically</option>
                         <option value="red">🔴 Red</option>
                         <option value="orange">🟠 Orange</option>
@@ -10739,7 +10550,7 @@ export default function App() {
                     value={catalogSearchQuery}
                     onChange={(e) => setCatalogSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-16 py-2 border border-slate-200 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-slate-50/50 rounded-xl text-xs outline-none font-sans"
-                  />
+                   aria-label="Filter indexed pages by title, URL or author" />
                   {(catalogSearchQuery || selectedCatalogTag || tagSearchQuery) && (
                     <button 
                       onClick={() => {
@@ -10934,7 +10745,7 @@ export default function App() {
                               value={tagSearchQuery}
                               onChange={(e) => setTagSearchQuery(e.target.value)}
                               className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200/90 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 rounded-xl text-xs outline-none font-sans text-slate-700 shadow-sm placeholder:text-slate-400"
-                            />
+                             aria-label="Search tags by name (e.g. search-engine, python)" />
                             {tagSearchQuery && (
                               <button
                                 type="button"
@@ -10955,7 +10766,7 @@ export default function App() {
                               onChange={(e) => setTagSortBy(e.target.value as any)}
                               className="w-full sm:w-auto px-2.5 py-1.5 bg-white border border-slate-200/90 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 rounded-xl text-xs outline-none font-sans font-medium text-slate-700 shadow-sm cursor-pointer"
                               title="Sort tag pills by usage frequency or name"
-                            >
+                             aria-label="Sort tags">
                               <option value="usage_desc">Sort: Usage (High → Low)</option>
                               <option value="usage_asc">Sort: Usage (Low → High)</option>
                               <option value="name_asc">Sort: Name (A → Z)</option>
@@ -11236,7 +11047,7 @@ export default function App() {
                               value={batchRemoveSelectedTag}
                               onChange={(e) => setBatchRemoveSelectedTag(e.target.value)}
                               className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 focus:border-blue-400 rounded-xl text-xs outline-none text-white cursor-pointer font-sans"
-                            >
+                             aria-label="Tag to remove from pages">
                               <option value="">Select tag to remove...</option>
                               {tagsOnSelectedPages.map(tag => (
                                 <option key={tag} value={tag}>#{tag}</option>
@@ -11534,7 +11345,7 @@ export default function App() {
                                 value={editSnippet}
                                 onChange={(e) => setEditSnippet(e.target.value)}
                                 className="w-full border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white rounded-xl p-2.5 text-xs outline-none font-sans text-slate-800 shadow-sm"
-                              ></textarea>
+                               aria-label="Edit page snippet description"></textarea>
                             </div>
 
                             {/* Clickable Suggested Tag Pill Buttons parsed from Snippet */}
@@ -11618,7 +11429,7 @@ export default function App() {
                                   value={editCanonicalUrl}
                                   onChange={(e) => setEditCanonicalUrl(e.target.value)}
                                   className="w-full border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white rounded-xl p-2 text-xs outline-none font-mono text-slate-800"
-                                />
+                                 aria-label="e.g. https://example.com/canonical-url" />
                               </div>
 
                               <div className="flex flex-col gap-1.5">
@@ -11653,7 +11464,7 @@ export default function App() {
                                   value={editMetaDescription}
                                   onChange={(e) => setEditMetaDescription(e.target.value)}
                                   className="w-full border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white rounded-xl p-2 text-xs outline-none font-sans text-slate-800"
-                                ></textarea>
+                                 aria-label="Specify custom meta description for Whoosh search indexing"></textarea>
                               </div>
 
                               <div className="flex flex-col gap-1.5">
@@ -11667,7 +11478,7 @@ export default function App() {
                                   value={editKeywordsStr}
                                   onChange={(e) => setEditKeywordsStr(e.target.value)}
                                   className="w-full border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white rounded-xl p-2 text-xs outline-none font-sans text-slate-800"
-                                ></textarea>
+                                 aria-label="e.g. whoosh, python, search engine, indexing"></textarea>
                               </div>
                             </div>
 
@@ -11680,7 +11491,7 @@ export default function App() {
                                   value={editAuthor}
                                   onChange={(e) => setEditAuthor(e.target.value)}
                                   className="w-full border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white rounded-xl p-2 text-xs outline-none font-sans text-slate-800"
-                                />
+                                 aria-label="Edit author (e.g. Robin Hood)" />
                               </div>
                               
                               <div className="flex flex-col gap-1.5">
@@ -11691,7 +11502,7 @@ export default function App() {
                                   value={editLanguage}
                                   onChange={(e) => setEditLanguage(e.target.value)}
                                   className="w-full border border-slate-300 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white rounded-xl p-2 text-xs outline-none font-sans text-slate-800"
-                                />
+                                 aria-label="Edit language (e.g. English)" />
                               </div>
 
                               <div className="flex flex-col gap-1.5">
@@ -11903,7 +11714,7 @@ export default function App() {
                 };
 
                 return (
-                  <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
+                  <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Crawl run log" className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
                     <motion.div
                       initial={{ opacity: 0, scale: 0.95, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -12125,7 +11936,7 @@ export default function App() {
                                 onChange={(e) => setLogSearchQuery(e.target.value)}
                                 placeholder="Filter output text..."
                                 className="w-full bg-slate-900 border border-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-200 text-xs font-mono pl-8 pr-3 py-1.5 rounded-xl outline-none"
-                              />
+                               aria-label="Filter output text" />
                               {logSearchQuery && (
                                 <button
                                   type="button"
@@ -12801,7 +12612,7 @@ export default function App() {
                       value={graphSearchQuery}
                       onChange={(e) => setGraphSearchQuery(e.target.value)}
                       className="w-full pl-3 pr-8 py-2 bg-[#02020a] border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-550 transition-all font-sans"
-                    />
+                     aria-label="Search nodes by title or URL" />
                     {graphSearchQuery ? (
                       <button 
                         onClick={() => setGraphSearchQuery('')}
@@ -13472,7 +13283,7 @@ export default function App() {
                       value={minBacklinks}
                       onChange={(e) => setMinBacklinks(Number(e.target.value))}
                       className="w-full accent-blue-500 h-1.5 bg-slate-950 rounded-lg appearance-none cursor-pointer border border-slate-800/80"
-                    />
+                     aria-label="Minimum backlinks" />
 
                     <div className="grid grid-cols-4 gap-1 mt-0.5">
                       {[0, 2, 5, 10].map((val) => (
@@ -13962,7 +13773,7 @@ export default function App() {
                   onChange={handleImportCollectionFile}
                   accept=".json,application/json"
                   className="hidden"
-                />
+                 aria-label="Import collection from file" />
                 <button
                   type="button"
                   id="import-collection-json-btn"
@@ -14030,7 +13841,7 @@ export default function App() {
                   value={collectionsQuery}
                   onChange={(e) => setCollectionsQuery(e.target.value)}
                   className="w-full pl-9 pr-9 py-2.5 bg-[#030712] border border-slate-800 focus:border-blue-500 rounded-xl text-xs text-slate-200 placeholder-slate-500 outline-none focus:ring-2 focus:ring-blue-950 transition-all font-sans"
-                />
+                 aria-label="Filter folder names, page titles, or snippet details" />
                 {collectionsQuery && (
                   <button
                     type="button"
@@ -14089,7 +13900,7 @@ export default function App() {
                           onChange={(e) => setNewCollectionName(e.target.value)}
                           placeholder="e.g., Deep Learning, Web Scraping"
                           className="border border-slate-800 bg-[#030712] text-slate-200 rounded-xl p-2.5 px-3 text-xs outline-none focus:ring-2 focus:ring-blue-950 focus:border-blue-505 focus:border-blue-500 transition-all font-sans"
-                        />
+                         aria-label="e.g., Deep Learning, Web Scraping" />
                       </div>
 
                       <div className="flex flex-col gap-1">
@@ -14100,7 +13911,7 @@ export default function App() {
                           onChange={(e) => setNewCollectionDesc(e.target.value)}
                           placeholder="Short summary of this group"
                           className="border border-slate-800 bg-[#030712] text-slate-200 rounded-xl p-2.5 px-3 text-xs outline-none focus:ring-2 focus:ring-blue-950 focus:border-blue-505 focus:border-blue-500 transition-all font-sans"
-                        />
+                         aria-label="Short summary of this group" />
                       </div>
 
                       <button
@@ -14682,7 +14493,7 @@ export default function App() {
                               onChange={(e) => handleUpdateFolderNote(e.target.value)}
                               placeholder="Type research takeaways, key queries, reminders, or general scratch notes for this folder here... Your thoughts will be saved instantly!"
                               className="w-full h-32 min-h-[95px] max-h-[300px] bg-[#020208]/90 border border-slate-900/80 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-950 rounded-xl p-3 px-3.5 text-xs text-slate-200 placeholder-slate-650 placeholder-slate-600 outline-none transition-all resize-y font-sans leading-relaxed scrollbar-thin"
-                            />
+                             aria-label="Type research takeaways, key queries, reminders, or general scratch notes for this folder here... Your thoughts will be saved instantly!" />
                           </div>
 
                           {/* Footer Counters and Security indicator */}
@@ -15356,7 +15167,7 @@ export default function App() {
                                 showToast(`Project status is now: ${newStatus}`, 'success');
                               }}
                               className="bg-[#030712] border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none cursor-pointer"
-                            >
+                             aria-label="Project status">
                               <option value="planning">Planning</option>
                               <option value="in_progress">In Progress</option>
                               <option value="review">Under Review</option>
@@ -15375,7 +15186,7 @@ export default function App() {
                                 setProjects(prev => prev.map(p => p.id === activeProj.id ? { ...p, target_date: newDate } : p));
                               }}
                               className="bg-[#030712] border border-[#1e293b] text-slate-300 text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none cursor-pointer"
-                            />
+                             aria-label="Project target date" />
                           </div>
                         </div>
                       </div>
@@ -15451,7 +15262,7 @@ export default function App() {
                             onChange={(e) => setLocalNotes(e.target.value)}
                             placeholder="Draft details or paste references here..."
                             className="w-full flex-1 min-h-[250px] bg-[#030712]/50 border border-slate-800 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 rounded-2xl p-4 text-xs text-slate-200 outline-none font-sans leading-relaxed resize-y"
-                          />
+                           aria-label="Draft details or paste references here" />
                         </div>
                       </div>
 
@@ -15669,7 +15480,7 @@ export default function App() {
                                     value={newProjectTaskText}
                                     onChange={(e) => setNewProjectTaskText(e.target.value)}
                                     className="flex-1 bg-[#030712]/50 border border-slate-800 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-slate-200 rounded-xl px-3 py-2 text-xs outline-none font-sans placeholder:text-slate-500"
-                                  />
+                                   aria-label="Add high-level research objective or milestone" />
                                   <button
                                     type="submit"
                                     className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 border border-blue-700 text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer shadow-sm active:scale-95 font-sans"
@@ -15893,7 +15704,7 @@ export default function App() {
                                                   }}
                                                   autoFocus
                                                   className="flex-1 bg-[#020617] border border-blue-500/80 rounded-lg px-2 py-1 text-xs text-white outline-none font-sans"
-                                                />
+                                                 aria-label="Edit objective title" />
                                                 <button
                                                   type="button"
                                                   onClick={() => handleSaveEditTaskText(activeProj.id, task.id)}
@@ -15917,7 +15728,7 @@ export default function App() {
                                                 onClick={() => handleToggleTaskInProject(activeProj.id, task.id)}
                                               >
                                                 <span 
-                                                  className={`text-xs font-sans font-medium text-left truncate ${task.completed ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-200'}`}
+                                                  className={`text-xs font-sans font-medium text-left line-clamp-2 break-words min-w-0 ${task.completed ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-200'}`}
                                                   title={task.text}
                                                 >
                                                   {task.text}
@@ -16139,6 +15950,7 @@ export default function App() {
                                                       <div className="flex items-center gap-1.5 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
                                                         <input
                                                           type="text"
+                                                          aria-label="Edit subtask title"
                                                           value={editingTaskText}
                                                           onChange={(e) => setEditingTaskText(e.target.value)}
                                                           onKeyDown={(e) => {
@@ -16166,7 +15978,7 @@ export default function App() {
                                                     ) : (
                                                       <span 
                                                         onClick={() => handleToggleTaskInProject(activeProj.id, subtask.id, true, task.id)}
-                                                        className={`text-xs font-sans text-left truncate cursor-pointer select-none ${subtask.completed ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-300'}`}
+                                                        className={`text-xs font-sans text-left line-clamp-2 break-words min-w-0 cursor-pointer select-none ${subtask.completed ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-300'}`}
                                                         title={subtask.text}
                                                       >
                                                         {subtask.text}
@@ -16258,7 +16070,7 @@ export default function App() {
                                                   onChange={(e) => setNewSubtaskText(e.target.value)}
                                                   autoFocus
                                                   className="flex-1 bg-transparent text-slate-100 text-xs outline-none font-sans placeholder:text-slate-500"
-                                                />
+                                                 aria-label="Enter actionable subtask (e.g. Gather seed URLs)" />
                                                 <button
                                                   type="submit"
                                                   className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] rounded-lg transition-all cursor-pointer shrink-0"
@@ -16495,7 +16307,7 @@ export default function App() {
         {/* Create Research Project Modal Overlay */}
         <AnimatePresence>
           {showCreateProjectModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Create research project" className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -16618,7 +16430,7 @@ export default function App() {
                       value={newProjectName}
                       onChange={(e) => setNewProjectName(e.target.value)}
                       className="bg-[#030712] border border-slate-800 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 rounded-xl p-3 text-slate-200 outline-none"
-                    />
+                     aria-label="e.g. LLM Training & Parameters" />
                   </div>
 
                   <div className="flex flex-col gap-1.5">
@@ -16628,7 +16440,7 @@ export default function App() {
                       value={newProjectDescription}
                       onChange={(e) => setNewProjectDescription(e.target.value)}
                       className="bg-[#030712] border border-slate-800 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 rounded-xl p-3 text-slate-200 outline-none h-20 resize-none"
-                    />
+                     aria-label="Brief objective of this study" />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -16638,7 +16450,7 @@ export default function App() {
                         value={newProjectStatus}
                         onChange={(e) => setNewProjectStatus(e.target.value as any)}
                         className="bg-[#030712] border border-slate-800 hover:border-slate-700 text-slate-300 rounded-xl p-3 outline-none cursor-pointer"
-                      >
+                       aria-label="New project status">
                         <option value="planning">Planning</option>
                         <option value="in_progress">In Progress</option>
                         <option value="review">Review</option>
@@ -16653,7 +16465,7 @@ export default function App() {
                         value={newProjectTargetDate}
                         onChange={(e) => setNewProjectTargetDate(e.target.value)}
                         className="bg-[#030712] border border-slate-800 hover:border-slate-700 text-slate-300 rounded-xl p-3 outline-none cursor-pointer"
-                      />
+                       aria-label="New project target date" />
                     </div>
                   </div>
 
@@ -16715,7 +16527,7 @@ export default function App() {
       {/* Clear Search History Confirmation Modal */}
       <AnimatePresence>
         {showClearHistoryConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Clear search history" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop with dynamic blur */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -16774,7 +16586,7 @@ export default function App() {
       {/* Delete Project Confirmation Modal */}
       <AnimatePresence>
         {projectToDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Delete project" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop with dynamic blur */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -16830,8 +16642,32 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating Keyboard Shortcuts Trigger Badge */}
-      <div className="fixed bottom-6 right-6 z-40 hidden sm:block">
+      {/* Floating Corner Controls: Tag Filter + Keyboard Shortcuts */}
+      <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
+        {activeTab === 'search' && availableSearchTags.length > 0 && (
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowTagFilterDrawer(prev => !prev)}
+            className={`flex items-center gap-2 px-3 py-2 border rounded-full text-xs font-mono font-bold shadow-[0_4px_24px_rgba(0,0,0,0.6)] backdrop-blur-md transition-all cursor-pointer ${
+              selectedSearchTags.length > 0
+                ? 'bg-blue-600/90 border-blue-400 text-white'
+                : 'bg-[#091332]/90 border-slate-800 text-slate-300 hover:text-blue-400 hover:border-blue-500/50'
+            }`}
+            title="Open Tag Filter Drawer"
+            aria-label={selectedSearchTags.length > 0 ? `Tag filters, ${selectedSearchTags.length} active` : 'Tag filters'}
+          >
+            <Tags className={`w-4 h-4 ${selectedSearchTags.length > 0 ? 'text-white' : 'text-blue-400'}`} />
+            <span>Tags</span>
+            <span className={`border rounded px-1.5 py-0.5 text-[9px] font-bold ${
+              selectedSearchTags.length > 0
+                ? 'bg-blue-700 border-blue-500 text-blue-100'
+                : 'bg-[#030712] border-slate-800 text-slate-400'
+            }`}>
+              {selectedSearchTags.length > 0 ? selectedSearchTags.length : availableSearchTags.length}
+            </span>
+          </motion.button>
+        )}
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -16848,7 +16684,7 @@ export default function App() {
       {/* Keyboard Shortcuts Dialog Overlay */}
       <AnimatePresence>
         {showShortcutsHelp && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Dimmed backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -17027,7 +16863,7 @@ export default function App() {
       {/* Global Command Palette / Search Overlay */}
       <AnimatePresence>
         {showCommandPalette && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 pb-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Command palette" className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 pb-4">
             {/* Dimmed backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -17091,7 +16927,7 @@ export default function App() {
                       ? 'text-slate-900 placeholder-slate-400' 
                       : 'text-slate-100 placeholder-slate-500'
                   }`}
-                />
+                 aria-label="Type a tab name, quick action, or category" />
                 
                 <div className="flex items-center gap-1.5 shrink-0 select-none">
                   <span className={`px-2 py-0.5 text-[9px] font-mono font-bold rounded-md tracking-wider leading-none border ${
@@ -17384,7 +17220,7 @@ export default function App() {
       {/* Mobile & Desktop Tag Filter Drawer / Bottom Sheet */}
       <AnimatePresence>
         {showTagFilterDrawer && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Tag filters" className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}

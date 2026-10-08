@@ -1,4 +1,5 @@
 import React from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { motion } from 'motion/react';
 import { Sparkles, Sliders, Target, FileText, AlignLeft, Info, Tag, CheckCircle } from 'lucide-react';
 import { BM25FieldBreakdown, WHOOSH_FIELD_WEIGHTS } from '../utils/bm25Scoring';
@@ -41,6 +42,7 @@ export const BM25ScoreInspector: React.FC<BM25ScoreInspectorProps> = ({
   const matchedTerms = details?.matchedTerms || [];
   const idfBreakdown = details?.idfBreakdown || {};
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <>
       {/* Backdrop */}
@@ -50,7 +52,7 @@ export const BM25ScoreInspector: React.FC<BM25ScoreInspectorProps> = ({
       />
 
       {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+      <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="BM25 score details" className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
         <motion.div
           initial={{ opacity: 0, scale: 0.94, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}

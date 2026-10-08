@@ -19,8 +19,8 @@ export function isMobileOrNativeApp(): boolean {
     return true;
   }
 
-  // 3. Android WebView file or localhost with no port (Capacitor androidScheme: 'https' maps to https://localhost)
-  if (window.location.hostname === 'localhost' && window.location.port !== '3000' && window.location.port !== '5173') {
+  // 3. Android WebView on localhost with no port (Capacitor androidScheme: 'https' maps to https://localhost)
+  if (window.location.hostname === 'localhost' && window.location.port === '') {
     return true;
   }
 

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Download,
@@ -194,6 +195,7 @@ export const ProjectExportMenu: React.FC<ProjectExportMenuProps> = ({
     }
   };
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <div className="relative inline-block text-left" ref={menuRef}>
       {/* Trigger Button */}
@@ -422,7 +424,7 @@ export const ProjectExportMenu: React.FC<ProjectExportMenuProps> = ({
       {/* Interactive Export & Code Preview Modal */}
       <AnimatePresence>
         {showPreviewModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Export preview" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}

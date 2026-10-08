@@ -257,6 +257,7 @@ export const TagAutocompleteInput: React.FC<TagAutocompleteInputProps> = ({
         ref={inputRef}
         type="text"
         id={id}
+        aria-label={placeholder || "Filter tags"}
         value={value}
         disabled={disabled}
         autoFocus={autoFocus}

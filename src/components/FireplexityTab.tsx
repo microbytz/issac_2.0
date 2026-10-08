@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -104,6 +105,7 @@ export default function FireplexityTab({
   onIndexImageItem,
   onNotify
 }: FireplexityTabProps) {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   const [turns, setTurns] = useState<FireplexityTurn[]>(() => {
     try {
       const saved = localStorage.getItem('isaac_fireplexity_turns');
@@ -302,6 +304,11 @@ export default function FireplexityTab({
                   )
                 );
               }
+            } else if (event.type === 'text-reset') {
+              // Server discarded a partial answer from a provider that failed mid-stream.
+              setTurns(prev =>
+                prev.map(t => (t.id === turnId ? { ...t, answer: '' } : t))
+              );
             } else if (event.type === 'text-delta') {
               const delta = event.data?.textDelta || '';
               if (delta) {
@@ -536,7 +543,7 @@ export default function FireplexityTab({
               className={`flex-1 bg-transparent border-none py-2.5 px-2 text-base focus:outline-none ${
                 isLight ? 'text-slate-900 placeholder:text-slate-400' : 'text-zinc-100 placeholder:text-zinc-500'
               }`}
-            />
+             aria-label="Ask anything... (e.g., 'NVIDIA stock & Blackwell architecture', 'How does Whoosh BM25 work?')" />
             <button
               type="submit"
               disabled={!inputQuery.trim() || isSearching}
@@ -1368,7 +1375,7 @@ export default function FireplexityTab({
               className={`flex-1 bg-transparent border-none py-2 px-2 text-sm focus:outline-none ${
                 isLight ? 'text-slate-900 placeholder:text-slate-400' : 'text-zinc-100 placeholder:text-zinc-500'
               }`}
-            />
+             aria-label="Ask a follow-up question or start a new deep search" />
             <button
               type="submit"
               disabled={!inputQuery.trim() || isSearching}
@@ -1388,7 +1395,7 @@ export default function FireplexityTab({
       {/* Scraped Markdown Inspector Modal */}
       <AnimatePresence>
         {inspectingSource && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Scraped content inspector" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1456,7 +1463,7 @@ export default function FireplexityTab({
       {/* Image Lightbox Modal */}
       <AnimatePresence>
         {lightboxImage && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Image viewer" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.isaac.searchengine',
+  appId: 'issac.microbytz.xyz',
   appName: 'Isaac Search Engine',
   webDir: 'dist',
   server: {

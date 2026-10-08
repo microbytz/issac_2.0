@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   FileJson,
@@ -141,9 +142,10 @@ export const BulkExportModal: React.FC<BulkExportModalProps> = ({
     }
   };
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-slate-950/80 backdrop-blur-md">
+      <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Export collection" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-slate-950/80 backdrop-blur-md">
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -415,7 +417,7 @@ export const BulkExportModal: React.FC<BulkExportModalProps> = ({
                         checked={options.includeContent}
                         onChange={(e) => setOptions(prev => ({ ...prev, includeContent: e.target.checked }))}
                         className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 border-slate-700 bg-slate-900"
-                      />
+                       aria-label="Include page content" />
                       <div>
                         <span className="font-bold block text-slate-200">Full Text & Cached Content</span>
                         <span className="text-[10px] text-slate-400 block leading-tight">
@@ -431,7 +433,7 @@ export const BulkExportModal: React.FC<BulkExportModalProps> = ({
                         checked={options.includeNotes}
                         onChange={(e) => setOptions(prev => ({ ...prev, includeNotes: e.target.checked }))}
                         className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 border-slate-700 bg-slate-900"
-                      />
+                       aria-label="Include notes" />
                       <div>
                         <span className="font-bold block text-slate-200">Folder Research Notes</span>
                         <span className="text-[10px] text-slate-400 block leading-tight">
@@ -447,7 +449,7 @@ export const BulkExportModal: React.FC<BulkExportModalProps> = ({
                         checked={options.includeMetadata}
                         onChange={(e) => setOptions(prev => ({ ...prev, includeMetadata: e.target.checked }))}
                         className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 border-slate-700 bg-slate-900"
-                      />
+                       aria-label="Include metadata" />
                       <div>
                         <span className="font-bold block text-slate-200">Meta Tags, SEO & Keywords</span>
                         <span className="text-[10px] text-slate-400 block leading-tight">
@@ -463,7 +465,7 @@ export const BulkExportModal: React.FC<BulkExportModalProps> = ({
                         checked={options.includeAnalytics}
                         onChange={(e) => setOptions(prev => ({ ...prev, includeAnalytics: e.target.checked }))}
                         className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 border-slate-700 bg-slate-900"
-                      />
+                       aria-label="Include analytics" />
                       <div>
                         <span className="font-bold block text-slate-200">Research Analytics Summary</span>
                         <span className="text-[10px] text-slate-400 block leading-tight">
@@ -495,7 +497,7 @@ export const BulkExportModal: React.FC<BulkExportModalProps> = ({
                           ? 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
                           : 'bg-[#060a1e] border-slate-800 text-slate-200 focus:border-blue-500'
                       }`}
-                    />
+                     aria-label="Custom filename" />
                     <button
                       type="button"
                       onClick={() => setCustomFilename('')}

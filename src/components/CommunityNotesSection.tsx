@@ -241,7 +241,8 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
   };
 
   const handleVote = async (noteId: string, type: 'helpful' | 'not_helpful') => {
-    if (userVotes[noteId] === type) return;
+    const previousVote = userVotes[noteId];
+    if (previousVote === type) return;
 
     // Optimistically update local state for maximum UI responsiveness
     setNotes(prev => {
@@ -252,12 +253,12 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
 
           if (type === 'helpful') {
             helpfulDelta = 1;
-            if (userVotes[noteId] === 'not_helpful') {
+            if (previousVote === 'not_helpful') {
               notHelpfulDelta = -1;
             }
           } else {
             notHelpfulDelta = 1;
-            if (userVotes[noteId] === 'helpful') {
+            if (previousVote === 'helpful') {
               helpfulDelta = -1;
             }
           }
@@ -288,7 +289,8 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          vote_type: type
+          vote_type: type,
+          previous_vote: previousVote ?? null
         })
       });
 
@@ -412,7 +414,7 @@ export default function CommunityNotesSection({ url, theme = 'dark' }: Community
                   required
                   rows={2}
                   className="bg-[#070e24] border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500/50 resize-none font-sans leading-relaxed"
-                />
+                 aria-label="e.g. Useful for beginners, watch out for indentation, great libraries" />
 
                 <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
                   <span>{newNoteContent.length}/250 chars</span>

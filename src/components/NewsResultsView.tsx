@@ -14,6 +14,12 @@ import {
 } from 'lucide-react';
 import { SafeSearchLevel, filterItemBySafeSearch } from '../utils/safeSearchUtils';
 
+function decodeEntities(text: string): string {
+  const el = document.createElement('textarea');
+  el.innerHTML = text;
+  return el.value;
+}
+
 export interface NewsArticleItem {
   id: string;
   title: string;
@@ -74,10 +80,10 @@ export const NewsResultsView: React.FC<NewsResultsViewProps> = ({
 
             articles.push({
               id: `news_hn_${hit.objectID}`,
-              title: hit.title || 'Breaking Coverage on ' + cleanQ,
+              title: decodeEntities(hit.title || 'Breaking Coverage on ' + cleanQ),
               url: storyUrl,
               snippet: hit.story_text
-                ? hit.story_text.replace(/<[^>]+>/g, '').slice(0, 240)
+                ? decodeEntities(hit.story_text.replace(/<[^>]+>/g, '')).slice(0, 240)
                 : `Latest discussion and coverage regarding ${hit.title || cleanQ} with ${hit.points || 12} community upvotes and ${hit.num_comments || 0} active perspectives.`,
               publisher,
               publishedAt: hit.created_at || new Date().toISOString(),
@@ -87,42 +93,6 @@ export const NewsResultsView: React.FC<NewsResultsViewProps> = ({
           }
         }
       } catch (_) {}
-
-      // Fallback curated news if query had no hits or network timed out
-      if (articles.length === 0) {
-        articles.push(
-          {
-            id: 'news_fallback_1',
-            title: `Global Developments in ${cleanQ.charAt(0).toUpperCase() + cleanQ.slice(1)}: Trends & Industry Analysis`,
-            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(cleanQ)}`,
-            snippet: `Key industry stakeholders and international researchers publish new retrospective findings regarding ${cleanQ} and associated technological breakthroughs.`,
-            publisher: 'Tech Wire & Associated Press',
-            publishedAt: new Date(Date.now() - 7200000).toISOString(),
-            timeAgo: '2h ago',
-            tags: ['analysis', 'industry', cleanQ.toLowerCase()]
-          },
-          {
-            id: 'news_fallback_2',
-            title: `Market Impact & Strategic Forecasts for ${cleanQ.charAt(0).toUpperCase() + cleanQ.slice(1)} Ecosystem`,
-            url: 'https://news.ycombinator.com',
-            snippet: `How next-generation infrastructure, open specifications, and autonomous software platforms are shifting perspectives around ${cleanQ}.`,
-            publisher: 'Financial & Open Source Journal',
-            publishedAt: new Date(Date.now() - 18000000).toISOString(),
-            timeAgo: '5h ago',
-            tags: ['market', 'ecosystem', 'trends']
-          },
-          {
-            id: 'news_fallback_3',
-            title: `Research Round-up: Benchmarks, Open Source Adoption, and Community Deployments`,
-            url: 'https://github.com/trending',
-            snippet: `An extensive survey evaluating real-world performance, implementation bottlenecks, and developer roadmaps across modern systems.`,
-            publisher: 'Engineering Review',
-            publishedAt: new Date(Date.now() - 86400000).toISOString(),
-            timeAgo: 'Yesterday',
-            tags: ['engineering', 'benchmarks']
-          }
-        );
-      }
 
       setNewsList(articles);
       setLoading(false);

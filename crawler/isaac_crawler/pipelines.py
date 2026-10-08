@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class IsaacPipeline:
     def __init__(self, backend_url, cred_path):
-        self.backend_url = backend_url or "http://backend:8000"
+        self.backend_url = backend_url or "http://localhost:8000"
         self.cred_path = cred_path
         self.db = None
 

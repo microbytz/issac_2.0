@@ -147,7 +147,7 @@ export const SearchTagFilterBar: React.FC<SearchTagFilterBarProps> = ({
                 ? 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-400'
                 : 'bg-[#030712] border-slate-800 text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-900'
             }`}
-          />
+           aria-label="Search tags" />
           {filterSearch && (
             <button
               type="button"

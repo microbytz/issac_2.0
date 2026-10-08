@@ -5,7 +5,7 @@ from whoosh.index import create_in, open_dir, exists_in
 from whoosh.fields import Schema, TEXT, ID, NUMERIC
 from whoosh.qparser import MultifieldParser, OrGroup, QueryParser
 from whoosh.scoring import BM25F
-from whoosh.spelling import SpellChecker
+
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,8 @@ def get_schema():
         content=TEXT(stored=True, field_boost=CONTENT_WEIGHT),
         snippet=TEXT(stored=True, field_boost=SNIPPET_WEIGHT),
         indexed_at=TEXT(stored=True),
-        indexed_time=NUMERIC(stored=True, type=float),
-        backlinks=NUMERIC(stored=True, type=int)
+        indexed_time=NUMERIC(stored=True, numtype=float),
+        backlinks=NUMERIC(stored=True, numtype=int)
     )
 
 def init_index():
@@ -212,3 +212,65 @@ def get_spell_correction(q):
     except Exception as e:
         logger.error(f"Spellcheck error: {e}")
         return None
+
+
+def download_index_from_storage():
+    """Download Whoosh search index binary files from Firebase Storage to local search_index directory."""
+    from . import database
+
+    logger.info("Syncing Whoosh search index from Firebase Storage on startup...")
+    try:
+        bucket = database.get_storage_bucket()
+        if not bucket:
+            logger.warning("No firebase storage bucket configured. Index sync skipped.")
+            return
+
+        os.makedirs("search_index", exist_ok=True)
+        blobs = list(bucket.list_blobs(prefix="search_index/"))
+        
+        if not blobs:
+            logger.info("No index files found in Firebase Storage, starting with blank index.")
+            return
+
+        cnt = 0
+        for blob in blobs:
+            # We skip directory placeholder blobs if any
+            if blob.name.endswith('/'):
+                continue
+            
+            # Make sure parent directory exists locally
+            local_path = blob.name
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            blob.download_to_filename(local_path)
+            cnt += 1
+            
+        logger.info(f"Synchronized {cnt} search index files from GCS bucket.")
+    except Exception as e:
+        logger.error(f"Error copying Whoosh index files from Firebase Storage: {e}")
+
+def upload_index_to_storage():
+    """Upload updated local Whoosh search index files to Firebase Storage to ensure global syncing."""
+    from . import database
+
+    logger.info("Uploading local Whoosh search index files to Firebase Storage...")
+    try:
+        bucket = database.get_storage_bucket()
+        if not bucket:
+            logger.warning("No storage bucket configured. Cannot back up index.")
+            return
+            
+        index_dir = "search_index"
+        if not os.path.exists(index_dir):
+            return
+            
+        for root, _, files in os.walk(index_dir):
+            for file in files:
+                local_path = os.path.join(root, file)
+                # Blob path inside GCS bucket
+                blob_name = local_path.replace("\\", "/")
+                blob = bucket.blob(blob_name)
+                blob.upload_from_filename(local_path)
+                
+        logger.info("Search index backup upload to GCS completed successfully.")
+    except Exception as e:
+        logger.error(f"Failed to backup search index to Cloud Storage: {e}")

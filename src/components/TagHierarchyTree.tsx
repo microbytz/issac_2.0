@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import * as d3 from 'd3';
 import {
   FolderTree,
@@ -292,7 +293,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
   }, [rawHierarchyData, collapsedNodeIds]);
 
   // Handle Collapsing/Expanding individual nodes
-  const handleToggleCollapse = (nodeId: string, e: React.MouseEvent) => {
+  const handleToggleCollapse = (nodeId: string, e: Pick<Event, 'stopPropagation'>) => {
     e.stopPropagation();
     setCollapsedNodeIds(prev => {
       const next = new Set(prev);
@@ -778,6 +779,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
     return pages.filter(p => p.tags && p.tags.some(tag => tag.toLowerCase() === t));
   }, [inspectedNode, pages]);
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <div className={`bg-white border border-slate-200 rounded-3xl shadow-sm flex flex-col overflow-hidden transition-all ${className}`}>
       {/* Header Toolbar */}
@@ -812,7 +814,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-sans outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 text-slate-700 shadow-xs w-44"
-            />
+             aria-label="Search tag in tree" />
             {searchQuery && (
               <button
                 type="button"
@@ -1109,7 +1111,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
 
       {/* Set Parent / Reparenting Modal */}
       {isReparentModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Configure tag parent relationship" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-3xl shadow-xl w-full max-w-md p-6 flex flex-col gap-5 animate-scale-in">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
@@ -1141,7 +1143,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
                     setReparentNewParent(parentMappings[t] || '__none__');
                   }}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-mono font-medium outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
-                >
+                 aria-label="Tag to move">
                   {uniqueTagsList.map(tag => (
                     <option key={tag} value={tag}>
                       #{tag} ({tagCounts[tag] || 0} pages)
@@ -1157,7 +1159,7 @@ export const TagHierarchyTree: React.FC<TagHierarchyTreeProps> = ({
                   value={reparentNewParent}
                   onChange={(e) => setReparentNewParent(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-mono font-medium outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
-                >
+                 aria-label="New parent tag">
                   <option value="__none__">-- None (Make Top-Level Tag) --</option>
                   <optgroup label="Available Parent Tags">
                     {uniqueTagsList

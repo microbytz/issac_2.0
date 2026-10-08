@@ -22,4 +22,4 @@ AUTOTHROTTLE_START_DELAY = 1.0
 AUTOTHROTTLE_MAX_DELAY = 10.0
 
 # Set backend endpoint URL for reporting content
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:3000")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
