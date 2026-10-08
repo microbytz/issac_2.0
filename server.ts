@@ -601,27 +601,79 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
   return results;
 }
 
+// Loopback, link-local and RFC1918/CGNAT hosts — provider-supplied image URLs
+// must never make the server fetch internal resources.
+const PRIVATE_IMAGE_HOST_RE = /^localhost$|\.local$|\.internal$|^0\.0\.0\.0$|^::$|^\[?::1\]?$|^127\.|^10\.|^169\.254\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./i;
+
+function isPrivateImageHost(hostname: string): boolean {
+  return PRIVATE_IMAGE_HOST_RE.test(hostname);
+}
+
+// Fetches at most MAX_COLOR_SAMPLE_BYTES of an image, validating the scheme and
+// host of the URL and every redirect target so results can't pivot into the
+// internal network.
+async function fetchImageSample(imageUrl: string): Promise<Buffer | undefined> {
+  let url = imageUrl;
+  for (let hop = 0; hop < 4; hop++) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch (_) {
+      return undefined;
+    }
+    if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || isPrivateImageHost(parsed.hostname)) {
+      return undefined;
+    }
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'IsaacSearchEngine/2.0', Accept: 'image/*' },
+      signal: AbortSignal.timeout(3000),
+      redirect: 'manual'
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) return undefined;
+      url = new URL(location, url).toString();
+      continue;
+    }
+    if (!response.ok || !response.body) return undefined;
+    const declaredLength = Number(response.headers.get('content-length') || 0);
+    if (declaredLength > MAX_COLOR_SAMPLE_BYTES) return undefined;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > MAX_COLOR_SAMPLE_BYTES) {
+          await reader.cancel();
+          return undefined;
+        }
+        chunks.push(value);
+      }
+    } catch (_) {
+      return undefined;
+    }
+    return Buffer.concat(chunks);
+  }
+  return undefined;
+}
+
 async function detectDominantColor(imageUrl: string): Promise<string | undefined> {
   if (DOMINANT_COLOR_CACHE.has(imageUrl)) return DOMINANT_COLOR_CACHE.get(imageUrl);
   let color: string | undefined;
   try {
-    const response = await fetch(imageUrl, {
-      headers: { 'User-Agent': 'IsaacSearchEngine/2.0', Accept: 'image/*' },
-      signal: AbortSignal.timeout(3000)
-    });
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (response.ok && declaredLength <= MAX_COLOR_SAMPLE_BYTES) {
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length <= MAX_COLOR_SAMPLE_BYTES) {
-        const size = 24;
-        const pixels = await sharp(buffer, { failOn: 'none' })
-          .resize(size, size, { fit: 'cover' })
-          .removeAlpha()
-          .toColourspace('srgb')
-          .raw()
-          .toBuffer();
-        color = classifyDominantColor(pixels, size, size);
-      }
+    const buffer = await fetchImageSample(imageUrl);
+    if (buffer) {
+      const size = 24;
+      const pixels = await sharp(buffer, { failOn: 'none' })
+        .resize(size, size, { fit: 'cover' })
+        .removeAlpha()
+        .toColourspace('srgb')
+        .raw()
+        .toBuffer();
+      color = classifyDominantColor(pixels, size, size);
     }
   } catch (_) {
     color = undefined;
@@ -648,15 +700,20 @@ function imageQueryTerms(query: string): string[] {
     .map(t => (t.length > 4 && t.endsWith('s') ? t.slice(0, -1) : t));
 }
 
-// True when at least one query term appears in the image's title/tags.
+// True when at least one query term matches a whole token in the image's
+// title/tags, so a 'cat' search can't pass on 'Cathedral'.
 function matchesImageQuery(terms: string[], fields: unknown[]): boolean {
   if (terms.length === 0) return true;
-  const haystack = fields
-    .filter((f): f is string => typeof f === 'string')
-    .join(' ')
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ');
-  return terms.some(term => haystack.includes(term));
+  const tokens = new Set(
+    fields
+      .filter((f): f is string => typeof f === 'string')
+      .join(' ')
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(Boolean)
+      .map(t => (t.length > 4 && t.endsWith('s') ? t.slice(0, -1) : t))
+  );
+  return terms.some(term => tokens.has(term));
 }
 
 function extractTopicalTags(query: string, title: string, snippet: string): string[] {
@@ -1370,7 +1427,7 @@ async function startServer() {
         const data: any = await response.json();
         const rawResults = Array.isArray(data?.results) ? data.results : [];
         const mappedImages = rawResults
-          .filter((r: any) => r && (r.img_src || r.thumbnail_src))
+          .filter((r: any) => r && (r.img_src || r.thumbnail_src) && matchesImageQuery(queryTerms, [r.title]))
           .slice(0, 20)
           .map((r: any, idx: number) =>
             toImageItem(
