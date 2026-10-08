@@ -808,10 +808,27 @@ function extractTopicalTags(query: string, title: string, snippet: string): stri
  * and seamlessly cascades to open metasearch JSON endpoints (DuckDuckGo Instant Answer + Wikipedia + HN Algolia)
  * if public SearXNG instances rate-limit JSON requests.
  */
+const REGION_CONFIGS: Record<string, { lang: string; ddgKl: string; domains: string[] }> = {
+  all: { lang: 'en', ddgKl: 'wt-wt', domains: [] },
+  us: { lang: 'en', ddgKl: 'us-en', domains: ['.gov', '.edu', '.com', '.us'] },
+  uk: { lang: 'en', ddgKl: 'uk-en', domains: ['.uk', '.co.uk', '.gov.uk', '.ac.uk'] },
+  de: { lang: 'de', ddgKl: 'de-de', domains: ['.de'] },
+  fr: { lang: 'fr', ddgKl: 'fr-fr', domains: ['.fr', '.gouv.fr'] },
+  jp: { lang: 'ja', ddgKl: 'jp-jp', domains: ['.jp', '.co.jp'] },
+  ca: { lang: 'en', ddgKl: 'ca-en', domains: ['.ca', '.gc.ca'] },
+  au: { lang: 'en', ddgKl: 'au-en', domains: ['.au', '.com.au', '.gov.au'] },
+  in: { lang: 'en', ddgKl: 'in-en', domains: ['.in', '.co.in', '.gov.in'] },
+  es: { lang: 'es', ddgKl: 'es-es', domains: ['.es'] },
+  it: { lang: 'it', ddgKl: 'it-it', domains: ['.it'] },
+  nl: { lang: 'nl', ddgKl: 'nl-nl', domains: ['.nl'] },
+  br: { lang: 'pt', ddgKl: 'br-pt', domains: ['.br', '.com.br'] }
+};
+
 async function querySearXNGFallback(
   query: string,
   domainFilter?: string,
-  page: number = 1
+  page: number = 1,
+  region: string = 'all'
 ): Promise<{
   results: ServerIndexedPage[];
   providerUsed: string;
@@ -821,6 +838,7 @@ async function querySearXNGFallback(
     ? `site:${domainFilter.trim()} ${query}`
     : query;
 
+  const regConf = REGION_CONFIGS[region.toLowerCase()] || REGION_CONFIGS.all;
   const customUrl = process.env.SEARXNG_URL?.trim().replace(/\/$/, '');
   const apiKey = process.env.SEARXNG_API_KEY?.trim();
 
@@ -831,7 +849,8 @@ async function querySearXNGFallback(
   // 1. Try SearXNG JSON API instances with fast timeout
   for (const baseUrl of candidateInstances) {
     try {
-      const targetUrl = `${baseUrl}/search?q=${encodeURIComponent(effectiveQuery)}&pageno=${safePage}&format=json&language=en`;
+      const searxLang = regConf.lang !== 'all' ? regConf.lang : 'en';
+      const targetUrl = `${baseUrl}/search?q=${encodeURIComponent(effectiveQuery)}&pageno=${safePage}&format=json&language=${searxLang}`;
       const headers: Record<string, string> = {
         Accept: 'application/json',
         'User-Agent': 'IsaacSearchEngine/2.0 (SearXNG-Fallback; +https://isaac-search.app)'
@@ -859,7 +878,7 @@ async function querySearXNGFallback(
 
             const mapped: ServerIndexedPage[] = rawList
               .filter((r: any) => r && r.url && r.title)
-              .slice(0, 8)
+              .slice(0, 25)
               .map((r: any, idx: number) => {
                 const snippetText = cleanScrapedExcerpt(r.content || r.snippet || r.title || '', 280);
                 const engines: string[] = Array.isArray(r.engines)
@@ -909,7 +928,7 @@ async function querySearXNGFallback(
 
   const ddgPromise = (async () => {
     try {
-      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(effectiveQuery)}&format=json&no_html=1&skip_disambig=1`;
+      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(effectiveQuery)}&format=json&no_html=1&skip_disambig=1&kl=${regConf.ddgKl}`;
       const res = await fetch(ddgUrl, { signal: AbortSignal.timeout(3000) });
       if (!res.ok) return;
       const data: any = await res.json();
@@ -939,8 +958,8 @@ async function querySearXNGFallback(
       }
 
       const related = Array.isArray(data?.RelatedTopics) ? data.RelatedTopics : [];
-      const startRel = (safePage - 1) * 4;
-      for (const topic of related.slice(startRel, startRel + 4)) {
+      const startRel = (safePage - 1) * 10;
+      for (const topic of related.slice(startRel, startRel + 10)) {
         const topicUrl = topic?.FirstURL;
         const topicText = topic?.Text;
         if (topicUrl && topicText && !seenUrls.has(topicUrl)) {
@@ -973,10 +992,10 @@ async function querySearXNGFallback(
 
   const wikiPromise = (async () => {
     try {
-      const wikiOffset = (safePage - 1) * 4;
+      const wikiOffset = (safePage - 1) * 10;
       const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(
         effectiveQuery
-      )}&gsrlimit=4&gsroffset=${wikiOffset}&prop=extracts|info&exintro=1&explaintext=1&inprop=url&format=json&origin=*`;
+      )}&gsrlimit=10&gsroffset=${wikiOffset}&prop=extracts|info&exintro=1&explaintext=1&inprop=url&format=json&origin=*`;
       const res = await fetch(wikiUrl, {
         headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
         signal: AbortSignal.timeout(3200)
@@ -1019,7 +1038,7 @@ async function querySearXNGFallback(
       const hnPage = safePage - 1;
       const hnUrl = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(
         effectiveQuery
-      )}&tags=story&hitsPerPage=4&page=${hnPage}`;
+      )}&tags=story&hitsPerPage=10&page=${hnPage}`;
       const res = await fetch(hnUrl, { signal: AbortSignal.timeout(3200) });
       if (!res.ok) return;
       const data: any = await res.json();
@@ -1070,9 +1089,80 @@ async function querySearXNGFallback(
   }
 
   return {
-    results: filtered.slice(0, 8),
+    results: filtered.slice(0, 30),
     providerUsed: 'SearXNG Metasearch (DDG + Wikipedia + HN)'
   };
+}
+
+/**
+ * Fetches real-world "Searches related to X" using Google search suggestions,
+ * DuckDuckGo autocomplete, and intelligent contextual expansions.
+ */
+async function fetchRelatedSearches(query: string): Promise<string[]> {
+  const cleanQ = query.trim();
+  if (!cleanQ) return [];
+  const relatedSet = new Set<string>();
+
+  // 1. Google Suggestions with trailing space returns true Google "Searches related to X"
+  try {
+    const url = `https://suggestqueries.google.com/complete/search?client=firefox&hl=en&q=${encodeURIComponent(cleanQ + ' ')}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      signal: AbortSignal.timeout(1800)
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      if (Array.isArray(data) && Array.isArray(data[1])) {
+        for (const item of data[1]) {
+          const s = String(item).trim();
+          if (s && s.toLowerCase() !== cleanQ.toLowerCase()) {
+            relatedSet.add(s);
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 2. DuckDuckGo Autocomplete with space
+  if (relatedSet.size < 8) {
+    try {
+      const ddgUrl = `https://duckduckgo.com/ac/?q=${encodeURIComponent(cleanQ + ' ')}&type=list`;
+      const res = await fetch(ddgUrl, { signal: AbortSignal.timeout(1500) });
+      if (res.ok) {
+        const data: any = await res.json();
+        if (Array.isArray(data) && Array.isArray(data[1])) {
+          for (const item of data[1]) {
+            const s = String(item).trim();
+            if (s && s.toLowerCase() !== cleanQ.toLowerCase()) {
+              relatedSet.add(s);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. Synthesize contextual search terms from query
+  const contextualTerms = [
+    `${cleanQ} tutorial`,
+    `${cleanQ} documentation`,
+    `${cleanQ} best practices`,
+    `${cleanQ} examples github`,
+    `${cleanQ} guide for beginners`,
+    `${cleanQ} alternatives`,
+    `${cleanQ} vs`,
+    `${cleanQ} cheatsheet`
+  ];
+  for (const term of contextualTerms) {
+    if (relatedSet.size >= 8) break;
+    if (!relatedSet.has(term)) {
+      relatedSet.add(term);
+    }
+  }
+
+  return Array.from(relatedSet).slice(0, 10);
 }
 
 let serverAutoCrawlEnabled = false;
@@ -1368,6 +1458,7 @@ async function startServer() {
     const queryStr = String(req.query.q || '').trim();
     const pageNum = Math.max(1, Number(req.query.page) || 1);
     const domainFilter = String(req.query.domain || '').trim();
+    const region = String(req.query.region || 'all').trim().toLowerCase();
     const minBacklinks = Number(req.query.min_backlinks) || 0;
     const dateFromSec = Number(req.query.date_from) || 0;
     const dateToSec = Number(req.query.date_to) || 0;
@@ -1376,7 +1467,7 @@ async function startServer() {
     const forceFallback = req.query.force_fallback === 'true';
     const autoIndex = req.query.auto_index !== 'false';
     const minResultsThreshold = Math.max(1, Number(req.query.min_results) || 3);
-    const pageLimit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
+    const pageLimit = Math.min(60, Math.max(1, Number(req.query.limit) || 25));
 
     if (!queryStr) {
       res.json({
@@ -1462,7 +1553,7 @@ async function startServer() {
     // 2. Trigger SearXNG Fallback if Firestore doesn't have enough results (or if force_fallback / page > 1 is requested)
     if (fallbackEnabled && (forceFallback || pageNum > 1 || firestoreCount < minResultsThreshold)) {
       fallbackTriggered = true;
-      const searxData = await querySearXNGFallback(queryStr, domainFilter, pageNum);
+      const searxData = await querySearXNGFallback(queryStr, domainFilter, pageNum, region);
       fallbackProvider = searxData.providerUsed;
 
       const existingUrls = new Set(localMatchUrls);
@@ -1521,6 +1612,8 @@ async function startServer() {
     else if (lowerQ === 'whereosh') spellcheck = 'whoosh';
     else if (lowerQ === 'firestur') spellcheck = 'firestore';
 
+    const relatedSearches = await fetchRelatedSearches(queryStr);
+
     res.json({
       results: matchedPages,
       firestore_count: firestoreCount,
@@ -1529,7 +1622,8 @@ async function startServer() {
       fallback_count: fallbackCount,
       auto_indexed_count: autoIndexedCount,
       new_indexed_pages: newlyIndexedPages,
-      spellcheck
+      spellcheck,
+      related_searches: relatedSearches
     });
   });
 
@@ -1797,8 +1891,102 @@ async function startServer() {
     res.json({ status: 'indexed', image: req.body });
   });
 
-  app.get('/api/suggest', (_req: Request, res: Response) => {
-    res.json({ suggestions: [] });
+  app.get('/api/suggest', async (req: Request, res: Response) => {
+    const query = String(req.query.q || '').trim();
+    const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 10));
+
+    if (!query) {
+      res.json({ query: '', suggestions: [] });
+      return;
+    }
+
+    const suggestionsSet = new Set<string>();
+
+    // 1. Query Google Autocomplete (fast, high-quality, real query suggestions)
+    try {
+      const googleUrl = `https://suggestqueries.google.com/complete/search?client=firefox&hl=en&q=${encodeURIComponent(query)}`;
+      const gRes = await fetch(googleUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        },
+        signal: AbortSignal.timeout(1800)
+      });
+      if (gRes.ok) {
+        const gData: any = await gRes.json();
+        if (Array.isArray(gData) && Array.isArray(gData[1])) {
+          for (const item of gData[1]) {
+            const s = String(item).trim();
+            if (s) suggestionsSet.add(s);
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. Query DuckDuckGo Autocomplete as secondary/complementary provider
+    if (suggestionsSet.size < limit) {
+      try {
+        const ddgUrl = `https://duckduckgo.com/ac/?q=${encodeURIComponent(query)}&type=list`;
+        const dRes = await fetch(ddgUrl, { signal: AbortSignal.timeout(1500) });
+        if (dRes.ok) {
+          const dData: any = await dRes.json();
+          if (Array.isArray(dData) && Array.isArray(dData[1])) {
+            for (const item of dData[1]) {
+              const s = String(item).trim();
+              if (s) suggestionsSet.add(s);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Query Wikipedia OpenSearch
+    if (suggestionsSet.size < limit) {
+      try {
+        const wikiUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=${limit}&namespace=0&format=json`;
+        const wRes = await fetch(wikiUrl, { signal: AbortSignal.timeout(1500) });
+        if (wRes.ok) {
+          const wData: any = await wRes.json();
+          if (Array.isArray(wData) && Array.isArray(wData[1])) {
+            for (const item of wData[1]) {
+              const s = String(item).trim();
+              if (s) suggestionsSet.add(s);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 4. In-memory indexed pages (keywords & tags)
+    const lowerQ = query.toLowerCase();
+    for (const page of serverIndexedPages) {
+      if (suggestionsSet.size >= limit * 2) break;
+      const kws = Array.isArray(page.keywords) ? page.keywords : String(page.keywords || '').split(',');
+      for (const kw of kws) {
+        const clean = String(kw).trim();
+        if (clean && clean.toLowerCase().includes(lowerQ)) {
+          suggestionsSet.add(clean);
+        }
+      }
+      for (const tag of page.tags || []) {
+        const clean = String(tag).trim();
+        if (clean && clean.toLowerCase().includes(lowerQ)) {
+          suggestionsSet.add(clean);
+        }
+      }
+    }
+
+    const resultList = Array.from(suggestionsSet).slice(0, limit);
+    res.json({ query, suggestions: resultList });
+  });
+
+  app.get('/api/related-searches', async (req: Request, res: Response) => {
+    const query = String(req.query.q || '').trim();
+    if (!query) {
+      res.json({ query: '', related_searches: [] });
+      return;
+    }
+    const related = await fetchRelatedSearches(query);
+    res.json({ query, related_searches: related });
   });
 
   app.post('/api/suggest-tags', (req: Request, res: Response) => {

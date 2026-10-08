@@ -13,9 +13,15 @@ import {
   LayoutTemplate, TrendingUp, ListPlus, Eye, EyeOff, AlertTriangle, XCircle, X, Terminal,
   RotateCw, Zap, FileJson, Upload, Cpu, CornerDownLeft, Hash, ArrowUpRight, Table,
   CornerDownRight, ListTree, ChevronsUpDown, CheckCheck, FolderArchive, Archive, GripVertical, ArrowUpDown,
-  Tags, GitMerge, FolderTree, GitFork, Shield, Newspaper, Video, ShieldCheck, ShieldAlert
+  Tags, GitMerge, FolderTree, GitFork, Shield, Newspaper, Video, ShieldCheck, ShieldAlert,
+  Flame
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import BangsModal from './components/BangsModal';
+import ClearTraceModal from './components/ClearTraceModal';
+import RegionFilterDropdown from './components/RegionFilterDropdown';
+import { DUCK_BANGS, DuckBang, parseBangQuery, getMatchingBangs } from './utils/duckBangs';
+import { SEARCH_REGIONS, getRegionByCode } from './utils/duckRegions';
 import { exportProjectToPDF, exportSearchResultsToPDF } from './utils/pdfGenerator';
 import ProjectExportMenu from './components/ProjectExportMenu';
 import InstantAnswerWidget from './components/InstantAnswerWidget';
@@ -104,10 +110,12 @@ interface PageItem {
 
 interface WhooshKeywordSuggestion {
   keyword: string;
-  type: 'whoosh_term' | 'index_keyword' | 'page_title' | 'tag' | 'history';
+  type: 'query_suggestion' | 'whoosh_term' | 'index_keyword' | 'page_title' | 'tag' | 'history' | 'bang';
   label: string;
   sourceTitle?: string;
   docCount?: number;
+  bangIcon?: string;
+  bangDomain?: string;
 }
 
 interface PendingIndexItem {
@@ -1258,8 +1266,9 @@ export default function App() {
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const [searchResults, setSearchResults] = useState<PageItem[]>(() => [...DEFAULT_PAGES].sort((a, b) => (b.likes || 0) - (a.likes || 0)));
   const [currentPage, setCurrentPage] = useState(1);
-  const [visibleResultsCount, setVisibleResultsCount] = useState<number>(6);
+  const [visibleResultsCount, setVisibleResultsCount] = useState<number>(20);
   const [isLoadingMoreResults, setIsLoadingMoreResults] = useState<boolean>(false);
+  const [relatedSearches, setRelatedSearches] = useState<string[]>([]);
   const [imagePage, setImagePage] = useState<number>(1);
   const [visibleImagesCount, setVisibleImagesCount] = useState<number>(8);
   const [isLoadingMoreImages, setIsLoadingMoreImages] = useState<boolean>(false);
@@ -1475,6 +1484,15 @@ export default function App() {
     const activeProj = projects.find(p => p.id === selectedProjectId);
     return activeProj ? activeProj.notes : '';
   }, [projects, selectedProjectId]);
+
+  const handleUpdateProjectNotes = React.useCallback((projId: string, notesText: string) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id === projId) {
+        return { ...p, notes: notesText };
+      }
+      return p;
+    }));
+  }, []);
 
   const {
     localNotes,
@@ -1794,6 +1812,26 @@ export default function App() {
   const [safeSearchLevel, setSafeSearchLevel] = useState<SafeSearchLevel>(() => getStoredSafeSearch());
   const [showSafeSearchMenu, setShowSafeSearchMenu] = useState(false);
 
+  // DuckDuckGo-Style Region / Country Filter
+  const [selectedRegion, setSelectedRegion] = useState<string>(() => {
+    try {
+      return localStorage.getItem('isaac_region_filter') || 'all';
+    } catch (_) {
+      return 'all';
+    }
+  });
+
+  // DuckDuckGo-Style Bangs & Clear All Trace States
+  const [showBangsModal, setShowBangsModal] = useState(false);
+  const [showClearTraceModal, setShowClearTraceModal] = useState(false);
+  const [isBurningTraces, setIsBurningTraces] = useState(false);
+  const [bangDispatchNotice, setBangDispatchNotice] = useState<{
+    bangName: string;
+    query: string;
+    url: string;
+    prefix: string;
+  } | null>(null);
+
   // Advanced Filter state variables
   const [filterDomain, setFilterDomain] = useState('');
   const [filterDateRange, setFilterDateRange] = useState<'any' | '24h' | '7d' | '30d' | '365d' | 'custom'>('any');
@@ -1994,14 +2032,32 @@ export default function App() {
       });
     }
 
-    if (!searchWithinQuery.trim()) return tagFiltered;
-    const innerQ = searchWithinQuery.toLowerCase().trim();
-    return tagFiltered.filter(p => 
-      p.title.toLowerCase().includes(innerQ) || 
-      p.snippet.toLowerCase().includes(innerQ) || 
-      p.url.toLowerCase().includes(innerQ)
-    );
-  }, [searchResults, searchWithinQuery, excludedDomains, blockedDomains, selectedSearchTags, searchTagFilterLogic, pagesList, safeSearchLevel]);
+    let finalFiltered = tagFiltered;
+    if (searchWithinQuery.trim()) {
+      const innerQ = searchWithinQuery.toLowerCase().trim();
+      finalFiltered = tagFiltered.filter(p => 
+        p.title.toLowerCase().includes(innerQ) || 
+        p.snippet.toLowerCase().includes(innerQ) || 
+        p.url.toLowerCase().includes(innerQ)
+      );
+    }
+
+    // Boost items matching regional domain extensions
+    if (selectedRegion !== 'all') {
+      const reg = getRegionByCode(selectedRegion);
+      if (reg && reg.domainBoosts.length > 0) {
+        finalFiltered = [...finalFiltered].sort((a, b) => {
+          const aMatch = reg.domainBoosts.some(ext => (a.url || '').toLowerCase().includes(ext));
+          const bMatch = reg.domainBoosts.some(ext => (b.url || '').toLowerCase().includes(ext));
+          if (aMatch && !bMatch) return -1;
+          if (!aMatch && bMatch) return 1;
+          return 0;
+        });
+      }
+    }
+
+    return finalFiltered;
+  }, [searchResults, searchWithinQuery, excludedDomains, blockedDomains, selectedSearchTags, searchTagFilterLogic, pagesList, safeSearchLevel, selectedRegion]);
   const [pendingApprovalList, setPendingApprovalList] = useState<PendingIndexItem[]>(DEFAULT_PENDING_ITEMS);
   const [autoTaggingServiceActive, setAutoTaggingServiceActive] = useState(true);
   const [requireTagApprovalBeforeIndex, setRequireTagApprovalBeforeIndex] = useState(true);
@@ -3782,11 +3838,58 @@ export default function App() {
     });
   };
 
+  const generateClientRelatedSearches = (query: string, currentResults: PageItem[] = []): string[] => {
+    const cleanQ = query.trim();
+    if (!cleanQ) return [];
+    const set = new Set<string>();
+
+    // Extract relevant tags from search results
+    for (const item of currentResults.slice(0, 10)) {
+      for (const tag of item.tags || []) {
+        const cleanTag = tag.trim().toLowerCase();
+        if (cleanTag && !cleanQ.toLowerCase().includes(cleanTag) && !cleanTag.includes(cleanQ.toLowerCase())) {
+          set.add(`${cleanQ} ${cleanTag}`);
+        }
+      }
+    }
+
+    // Common search intents (Google style)
+    const suffixes = [
+      'tutorial', 'documentation', 'examples github', 'best practices',
+      'for beginners', 'cheatsheet', 'alternatives', 'architecture'
+    ];
+    for (const suf of suffixes) {
+      if (set.size >= 8) break;
+      set.add(`${cleanQ} ${suf}`);
+    }
+
+    return Array.from(set).slice(0, 8);
+  };
+
   const handleSearch = async (queryStr: string = searchQuery, bypassState = false, overrideDomain?: string, forceFallback = false) => {
     if (!queryStr.trim()) return;
+
+    // 0. DuckDuckGo !bangs detection & immediate dispatch
+    const bangData = parseBangQuery(queryStr);
+    if (bangData.hasBang && bangData.bang && bangData.redirectUrl) {
+      setBangDispatchNotice({
+        bangName: bangData.bang.name,
+        query: bangData.searchQuery || bangData.bang.name,
+        url: bangData.redirectUrl,
+        prefix: bangData.rawBang || bangData.bang.prefix
+      });
+      showToast(`⚡ !bang: Opening ${bangData.bang.name} (${bangData.bang.prefix})...`, 'info');
+      try {
+        window.open(bangData.redirectUrl, '_blank');
+      } catch (_) {
+        window.location.href = bangData.redirectUrl;
+      }
+      return;
+    }
+
     setIsSearching(true);
     setCurrentPage(1);
-    setVisibleResultsCount(6);
+    setVisibleResultsCount(20);
     setShowSuggestions(false);
     setSearchWithinQuery('');
     fetchImages(queryStr);
@@ -3794,7 +3897,10 @@ export default function App() {
     // Save to history
     saveToHistory(queryStr);
 
-    let backendUrl = `${API_BASE}/search?q=${encodeURIComponent(queryStr)}&page=1&limit=10&fallback=${searxngFallbackEnabled}&auto_index=${searxngAutoIndex}&min_results=${searxngMinResults}`;
+    let backendUrl = `${API_BASE}/search?q=${encodeURIComponent(queryStr)}&page=1&limit=25&fallback=${searxngFallbackEnabled}&auto_index=${searxngAutoIndex}&min_results=${searxngMinResults}`;
+    if (selectedRegion && selectedRegion !== 'all') {
+      backendUrl += `&region=${encodeURIComponent(selectedRegion)}`;
+    }
     if (forceFallback) {
       backendUrl += `&force_fallback=true`;
     }
@@ -3887,6 +3993,12 @@ export default function App() {
         }
         setSearchResults(enrichedResults);
         setSpellcheck(data.spellcheck || null);
+
+        if (Array.isArray(data.related_searches) && data.related_searches.length > 0) {
+          setRelatedSearches(data.related_searches);
+        } else {
+          setRelatedSearches(generateClientRelatedSearches(queryStr, enrichedResults));
+        }
       } else {
         throw new Error('Backend unreached, using fast local search matching.');
       }
@@ -4055,6 +4167,7 @@ export default function App() {
         });
 
         setSearchResults(processedResults);
+        setRelatedSearches(generateClientRelatedSearches(queryStr, processedResults));
         
         // Simple Spellcheck generator
         if (queryStr === 'fastapdoc') {
@@ -4073,8 +4186,50 @@ export default function App() {
     setIsSearching(false);
   };
 
+  // DuckDuckGo-style "Clear All Trace" (Fire Button equivalent)
+  const handleClearAllTrace = () => {
+    setIsBurningTraces(true);
+    setTimeout(() => {
+      // 1. Wipe search query, results, and pagination
+      setSearchQuery('');
+      setSearchResults([...DEFAULT_PAGES].sort((a, b) => (b.likes || 0) - (a.likes || 0)));
+      setVisibleResultsCount(20);
+      setCurrentPage(1);
+
+      // 2. Wipe search history and persistence
+      setSearchHistory([]);
+      try {
+        localStorage.removeItem('search_history');
+        localStorage.removeItem('isaac_region_filter');
+      } catch (_) {}
+
+      // 3. Wipe suggestions and autocomplete states
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+      setSelectedSuggestionIndex(-1);
+      setRelatedSearches([]);
+
+      // 4. Reset filters
+      setSelectedRegion('all');
+      setFilterDomain('');
+      setFilterMinBacklinks(0);
+      setFilterDateRange('any');
+      setFilterStartDate('');
+      setFilterEndDate('');
+      setSelectedSearchTags([]);
+      setExcludedDomains([]);
+      setSearchWithinQuery('');
+      setInspectingBm25Page(null);
+      setBangDispatchNotice(null);
+
+      // 5. Complete trace clearance animation
+      setIsBurningTraces(false);
+      showToast('🔥 All traces cleared! History and filters erased.', 'success');
+    }, 1100);
+  };
+
   const handleShowMoreResults = async () => {
-    const STEP = 6;
+    const STEP = 15;
     // If we already have enough buffered results in filteredSearchResults, reveal the next batch immediately
     if (visibleResultsCount + STEP <= filteredSearchResults.length) {
       const nextCount = visibleResultsCount + STEP;
@@ -4092,7 +4247,10 @@ export default function App() {
     const nextPage = currentPage + 1;
     const effectiveQ = searchQuery.trim() || 'search engine python fastapi firestore whoosh ai';
 
-    let backendUrl = `${API_BASE}/search?q=${encodeURIComponent(effectiveQ)}&page=${nextPage}&limit=10&fallback=true&force_fallback=true&auto_index=${searxngAutoIndex}`;
+    let backendUrl = `${API_BASE}/search?q=${encodeURIComponent(effectiveQ)}&page=${nextPage}&limit=25&fallback=true&force_fallback=true&auto_index=${searxngAutoIndex}`;
+    if (selectedRegion && selectedRegion !== 'all') {
+      backendUrl += `&region=${encodeURIComponent(selectedRegion)}`;
+    }
     if (filterDomain.trim()) {
       backendUrl += `&domain=${encodeURIComponent(filterDomain.trim())}`;
     }
@@ -4762,6 +4920,78 @@ export default function App() {
     };
   }, []);
 
+  // Google-style continuous scroll expansion: smooth auto-reveal of buffered results as user scrolls
+  useEffect(() => {
+    if (activeTab !== 'search' || searchMode !== 'all') return;
+    const handleScroll = () => {
+      if (isLoadingMoreResults || isSearching) return;
+      const scrollY = window.scrollY || document.documentElement.scrollTop;
+      const windowHeight = window.innerHeight;
+      const documentHeight = document.documentElement.scrollHeight;
+      // When user scrolls within 650px of bottom and there are buffered results available
+      if (scrollY + windowHeight >= documentHeight - 650) {
+        if (visibleResultsCount < filteredSearchResults.length) {
+          setVisibleResultsCount(prev => Math.min(prev + 10, filteredSearchResults.length));
+        }
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [activeTab, searchMode, visibleResultsCount, filteredSearchResults.length, isLoadingMoreResults, isSearching]);
+
+  // Immediate synchronous candidate finder for Tab autocomplete before debounce finishes
+  const getImmediateAutocompleteCandidate = (
+    query: string,
+    allPages: PageItem[],
+    historyList: string[]
+  ): string | null => {
+    const clean = query.trim().toLowerCase();
+    if (!clean) return null;
+
+    // 1. Check DuckDuckGo !bangs
+    if (clean.startsWith('!')) {
+      const matchingBangs = getMatchingBangs(clean);
+      if (matchingBangs.length > 0) {
+        return matchingBangs[0].prefix + ' ';
+      }
+    }
+
+    // 2. Check search suggestions already cached
+    if (searchSuggestions.length > 0) {
+      const top = searchSuggestions[0]?.keyword;
+      if (top) return top;
+    }
+
+    // 3. Check search history
+    const histMatch = historyList.find(h => h.toLowerCase().startsWith(clean) && h.toLowerCase() !== clean);
+    if (histMatch) return histMatch;
+
+    // 4. Check curated suggestion pool
+    const poolMatch = SUGGESTION_POOL.find(s => s.toLowerCase().startsWith(clean) && s.toLowerCase() !== clean);
+    if (poolMatch) return poolMatch;
+
+    // 5. Check keywords, tags, titles in indexed pages
+    for (const p of allPages) {
+      const kwList: string[] = Array.isArray(p.keywords)
+        ? p.keywords
+        : typeof p.keywords === 'string'
+          ? (p.keywords as string).split(',').map((k: string) => k.trim())
+          : [];
+      for (const kw of kwList) {
+        if (kw.toLowerCase().startsWith(clean) && kw.toLowerCase() !== clean) return kw;
+      }
+      for (const tag of p.tags || []) {
+        if (tag.toLowerCase().startsWith(clean) && tag.toLowerCase() !== clean) return tag;
+      }
+      if (p.title && p.title.toLowerCase().startsWith(clean) && p.title.toLowerCase() !== clean) {
+        return p.title;
+      }
+    }
+
+    return null;
+  };
+
   // Debounced search suggestions engine from Whoosh index and backend
   useEffect(() => {
     const query = searchQuery.trim();
@@ -4778,9 +5008,24 @@ export default function App() {
         const lowerQuery = query.toLowerCase();
         const suggestionsMap = new Map<string, WhooshKeywordSuggestion>();
 
-        // 1. Fetch suggestions from Whoosh backend API endpoint
+        // 0. DuckDuckGo !bangs suggestions when user types '!' or '!w'
+        if (lowerQuery.startsWith('!')) {
+          const matchingBangs = getMatchingBangs(lowerQuery, 8);
+          matchingBangs.forEach((bang) => {
+            suggestionsMap.set(bang.prefix.toLowerCase(), {
+              keyword: bang.prefix + ' ',
+              type: 'bang',
+              label: '!bang',
+              sourceTitle: `${bang.name} (${bang.domain})`,
+              bangIcon: bang.icon,
+              bangDomain: bang.domain
+            });
+          });
+        }
+
+        // 1. Fetch real query suggestions from backend API endpoint
         try {
-          const res = await fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}&limit=8`);
+          const res = await fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}&limit=10`);
           if (res.ok) {
             const data = await res.json();
             if (Array.isArray(data.suggestions)) {
@@ -4790,8 +5035,8 @@ export default function App() {
                 if (clean && !suggestionsMap.has(key)) {
                   suggestionsMap.set(key, {
                     keyword: clean,
-                    type: 'whoosh_term',
-                    label: 'Whoosh Index',
+                    type: 'query_suggestion',
+                    label: 'Suggestion',
                     docCount: 1
                   });
                 }
@@ -4891,13 +5136,15 @@ export default function App() {
           if (aStarts && !bStarts) return -1;
           if (!aStarts && bStarts) return 1;
 
-          // Prefer whoosh/keywords over long titles
+          // Prefer bangs & real query suggestions & keywords over long titles
           const typePriority: Record<string, number> = {
-            whoosh_term: 1,
-            index_keyword: 2,
-            tag: 3,
-            history: 4,
-            page_title: 5
+            bang: 0,
+            query_suggestion: 1,
+            whoosh_term: 2,
+            index_keyword: 3,
+            tag: 4,
+            history: 5,
+            page_title: 6
           };
           const prioDiff = (typePriority[a.type] || 9) - (typePriority[b.type] || 9);
           if (prioDiff !== 0) return prioDiff;
@@ -4905,7 +5152,7 @@ export default function App() {
           return a.keyword.length - b.keyword.length;
         });
 
-        setSearchSuggestions(suggestionList.slice(0, 8));
+        setSearchSuggestions(suggestionList.slice(0, 10));
         setSelectedSuggestionIndex(-1);
       } finally {
         setIsFetchingSuggestions(false);
@@ -4914,6 +5161,24 @@ export default function App() {
 
     return () => clearTimeout(debounceTimer);
   }, [searchQuery, pagesList, searchHistory]);
+
+  // Inline ghost completion text for DuckDuckGo-style autocomplete hint
+  const ghostCompletion = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return '';
+    if (searchSuggestions.length > 0) {
+      const activeIdx = selectedSuggestionIndex >= 0 ? selectedSuggestionIndex : 0;
+      const topKw = searchSuggestions[activeIdx]?.keyword || '';
+      if (topKw.toLowerCase().startsWith(q) && topKw.toLowerCase() !== q) {
+        return searchQuery + topKw.slice(searchQuery.length);
+      }
+    }
+    const syncMatch = getImmediateAutocompleteCandidate(searchQuery, [...pagesList, ...DEFAULT_PAGES], searchHistory);
+    if (syncMatch && syncMatch.toLowerCase().startsWith(q) && syncMatch.toLowerCase() !== q) {
+      return searchQuery + syncMatch.slice(searchQuery.length);
+    }
+    return '';
+  }, [searchQuery, searchSuggestions, selectedSuggestionIndex, pagesList, searchHistory]);
 
   // Helper to highlight matching text inside suggestions
   const renderHighlightedSuggestion = (text: string, query: string) => {
@@ -6295,15 +6560,6 @@ export default function App() {
     showToast(`Objectives sorted by ${sortType === 'az' ? 'A-Z' : sortType === 'status' ? 'completion status' : sortType === 'reverse' ? 'inverted order' : 'subtasks count'}`, 'info');
   };
 
-  const handleUpdateProjectNotes = (projId: string, notesText: string) => {
-    setProjects(prev => prev.map(p => {
-      if (p.id === projId) {
-        return { ...p, notes: notesText };
-      }
-      return p;
-    }));
-  };
-
   const handleToggleLinkCollection = (projId: string, colId: string) => {
     setProjects(prev => prev.map(p => {
       if (p.id === projId) {
@@ -7079,8 +7335,25 @@ export default function App() {
               </span>
             </button>
 
-            {/* Top Right Controls: Settings & Theme Toggle - compact and touch-friendly */}
+            {/* Top Right Controls: Clear All Trace, Settings & Theme Toggle */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {/* Clear All Trace (DuckDuckGo Fire Button equivalent) */}
+              <button
+                id="global-clear-trace-btn"
+                onClick={() => setShowClearTraceModal(true)}
+                type="button"
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 min-h-[38px] ${
+                  isLight
+                    ? 'bg-orange-50/80 border-orange-200 text-orange-700 hover:bg-orange-100 hover:border-orange-300 shadow-orange-100/50'
+                    : 'bg-orange-950/30 border-orange-800/80 text-orange-300 hover:bg-orange-900/50 hover:border-orange-600 shadow-orange-950/40'
+                }`}
+                title="Clear All Trace — Erase searches, history & filters"
+                aria-label="Clear All Trace"
+              >
+                <Flame className="w-4 h-4 text-orange-400 shrink-0" />
+                <span className="hidden sm:inline">Clear All Trace</span>
+              </button>
+
               <button
                 id="global-settings-btn"
                 onClick={() => setShowSettingsModal(true)}
@@ -7305,6 +7578,93 @@ export default function App() {
                     setShowSuggestions(true);
                   }}
                   onKeyDown={(e) => {
+                    // 1. Tab key - Autocomplete to active suggestion OR cycle to next OR synchronous immediate match
+                    if (e.key === 'Tab') {
+                      e.preventDefault(); // Always prevent default so focus NEVER jumps away from search bar!
+                      if (searchSuggestions.length > 0) {
+                        let targetIdx = 0;
+                        if (selectedSuggestionIndex >= 0) {
+                          if (e.shiftKey) {
+                            targetIdx = selectedSuggestionIndex <= 0 ? searchSuggestions.length - 1 : selectedSuggestionIndex - 1;
+                          } else {
+                            targetIdx = (selectedSuggestionIndex + 1) % searchSuggestions.length;
+                          }
+                        } else {
+                          targetIdx = e.shiftKey ? searchSuggestions.length - 1 : 0;
+                        }
+                        const targetKeyword = searchSuggestions[targetIdx]?.keyword;
+                        if (targetKeyword) {
+                          setSearchQuery(targetKeyword);
+                          setSelectedSuggestionIndex(targetIdx);
+                          setShowSuggestions(true);
+                          setTimeout(() => {
+                            if (searchInputRef.current) {
+                              const len = targetKeyword.length;
+                              searchInputRef.current.focus();
+                              searchInputRef.current.setSelectionRange(len, len);
+                            }
+                          }, 10);
+                          return;
+                        }
+                      } else {
+                        // Instant synchronous candidate lookup (e.g. user pressed Tab before 220ms debounce)
+                        const syncCandidate = getImmediateAutocompleteCandidate(
+                          searchQuery,
+                          [...pagesList, ...DEFAULT_PAGES],
+                          searchHistory
+                        );
+                        if (syncCandidate) {
+                          setSearchQuery(syncCandidate);
+                          setShowSuggestions(true);
+                          setTimeout(() => {
+                            if (searchInputRef.current) {
+                              const len = syncCandidate.length;
+                              searchInputRef.current.focus();
+                              searchInputRef.current.setSelectionRange(len, len);
+                            }
+                          }, 10);
+                          return;
+                        }
+                      }
+                    }
+
+                    // 2. ArrowRight key - If cursor is at the end of input, also autocomplete from ghost or active suggestion
+                    if (e.key === 'ArrowRight') {
+                      const input = searchInputRef.current;
+                      const isAtEnd = input ? input.selectionStart === input.value.length : false;
+                      if (isAtEnd) {
+                        if (searchSuggestions.length > 0) {
+                          const targetIdx = selectedSuggestionIndex >= 0 ? selectedSuggestionIndex : 0;
+                          const targetKeyword = searchSuggestions[targetIdx]?.keyword;
+                          if (targetKeyword && targetKeyword.toLowerCase().startsWith(searchQuery.toLowerCase()) && targetKeyword.toLowerCase() !== searchQuery.toLowerCase()) {
+                            e.preventDefault();
+                            setSearchQuery(targetKeyword);
+                            setSelectedSuggestionIndex(targetIdx);
+                            setShowSuggestions(true);
+                            setTimeout(() => {
+                              if (searchInputRef.current) {
+                                const len = targetKeyword.length;
+                                searchInputRef.current.focus();
+                                searchInputRef.current.setSelectionRange(len, len);
+                              }
+                            }, 10);
+                            return;
+                          }
+                        } else if (ghostCompletion && ghostCompletion.toLowerCase() !== searchQuery.toLowerCase()) {
+                          e.preventDefault();
+                          setSearchQuery(ghostCompletion);
+                          setTimeout(() => {
+                            if (searchInputRef.current) {
+                              const len = ghostCompletion.length;
+                              searchInputRef.current.focus();
+                              searchInputRef.current.setSelectionRange(len, len);
+                            }
+                          }, 10);
+                          return;
+                        }
+                      }
+                    }
+
                     if (showSuggestions && searchSuggestions.length > 0) {
                       if (e.key === 'ArrowDown') {
                         e.preventDefault();
@@ -7320,13 +7680,6 @@ export default function App() {
                         setShowSuggestions(false);
                         setSelectedSuggestionIndex(-1);
                         return;
-                      }
-                      if (e.key === 'Tab') {
-                        if (selectedSuggestionIndex >= 0 && searchSuggestions[selectedSuggestionIndex]) {
-                          e.preventDefault();
-                          setSearchQuery(searchSuggestions[selectedSuggestionIndex].keyword);
-                          return;
-                        }
                       }
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -7355,6 +7708,53 @@ export default function App() {
                   }`}
                  aria-label="Ask anything or enter site queries (try 'fastapi', 'firestore', 'whoosh')" />
                 
+                {/* Visual indicator of Tab autocomplete hint */}
+                {(searchSuggestions.length > 0 || Boolean(ghostCompletion)) && searchQuery.trim().length > 0 && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => {
+                      if (searchSuggestions.length > 0) {
+                        let targetIdx = 0;
+                        if (selectedSuggestionIndex >= 0) {
+                          targetIdx = (selectedSuggestionIndex + 1) % searchSuggestions.length;
+                        }
+                        const targetKeyword = searchSuggestions[targetIdx]?.keyword;
+                        if (targetKeyword) {
+                          setSearchQuery(targetKeyword);
+                          setSelectedSuggestionIndex(targetIdx);
+                          if (searchInputRef.current) {
+                            const len = targetKeyword.length;
+                            searchInputRef.current.focus();
+                            searchInputRef.current.setSelectionRange(len, len);
+                          }
+                        }
+                      } else if (ghostCompletion) {
+                        setSearchQuery(ghostCompletion);
+                        if (searchInputRef.current) {
+                          const len = ghostCompletion.length;
+                          searchInputRef.current.focus();
+                          searchInputRef.current.setSelectionRange(len, len);
+                        }
+                      }
+                    }}
+                    title="Click or press Tab to autocomplete"
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-medium rounded-lg select-none mr-1.5 transition-all cursor-pointer active:scale-95 ${
+                      isLight 
+                        ? 'text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100' 
+                        : 'text-blue-300 bg-blue-950/60 border border-blue-500/30 hover:bg-blue-900/60'
+                    }`}
+                  >
+                    <span>Tab</span>
+                    <span className="text-[11px]">⇥</span>
+                    {ghostCompletion && (
+                      <span className="hidden lg:inline text-[9px] opacity-75 max-w-[100px] truncate">
+                        {ghostCompletion}
+                      </span>
+                    )}
+                  </button>
+                )}
+
                 {/* Visual indicator of keyboard shortcut '/' to focus */}
                 {!searchQuery && (
                   <span className={`hidden sm:inline-flex items-center px-2 py-0.5 text-[10px] font-mono font-bold rounded-lg select-none mr-1 ${
@@ -7444,8 +7844,8 @@ export default function App() {
                       isLight ? 'bg-slate-50/80 text-slate-600' : 'bg-slate-900/60 text-slate-400'
                     }`}>
                       <div className="flex items-center gap-1.5 font-mono font-bold tracking-wider uppercase text-blue-500">
-                        <Cpu className="w-3.5 h-3.5" />
-                        <span>Whoosh Index Keywords</span>
+                        <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Query Suggestions &amp; Index</span>
                       </div>
                       <div className="flex items-center gap-2">
                         {isFetchingSuggestions ? (
@@ -7457,7 +7857,7 @@ export default function App() {
                           <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
                             isLight ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-900 text-slate-400 border-slate-800'
                           }`}>
-                            {searchSuggestions.length} {searchSuggestions.length === 1 ? 'term' : 'terms'}
+                            {searchSuggestions.length} {searchSuggestions.length === 1 ? 'suggestion' : 'suggestions'}
                           </span>
                         )}
                       </div>
@@ -7488,7 +7888,13 @@ export default function App() {
                             }`}
                           >
                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                              {item.type === 'whoosh_term' && <Cpu className="w-4 h-4 text-blue-400 shrink-0" />}
+                              {item.type === 'bang' && (
+                                <span className="text-base shrink-0 leading-none select-none">
+                                  {item.bangIcon || '⚡'}
+                                </span>
+                              )}
+                              {item.type === 'query_suggestion' && <Search className="w-4 h-4 text-blue-400 shrink-0" />}
+                              {item.type === 'whoosh_term' && <Cpu className="w-4 h-4 text-cyan-400 shrink-0" />}
                               {item.type === 'index_keyword' && <Hash className="w-4 h-4 text-sky-400 shrink-0" />}
                               {item.type === 'tag' && <Tag className="w-4 h-4 text-emerald-400 shrink-0" />}
                               {item.type === 'page_title' && <FileText className="w-4 h-4 text-amber-400 shrink-0" />}
@@ -7498,7 +7904,7 @@ export default function App() {
                                 {renderHighlightedSuggestion(item.keyword, searchQuery)}
                                 {item.sourceTitle && (
                                   <span className={`text-xs truncate hidden sm:inline ${
-                                    isLight ? 'text-slate-400' : 'text-slate-500'
+                                    item.type === 'bang' ? 'text-purple-400 font-medium' : isLight ? 'text-slate-400' : 'text-slate-500'
                                   }`}>
                                     — {item.sourceTitle}
                                   </span>
@@ -7508,9 +7914,13 @@ export default function App() {
 
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border uppercase font-semibold tracking-wider ${
-                                isLight 
-                                  ? 'bg-slate-100 text-slate-600 border-slate-200' 
-                                  : 'bg-slate-900 text-slate-400 border-slate-800'
+                                item.type === 'bang'
+                                  ? isLight
+                                    ? 'bg-purple-100 text-purple-700 border-purple-200 font-bold'
+                                    : 'bg-purple-950/60 text-purple-300 border-purple-800 font-bold'
+                                  : isLight 
+                                    ? 'bg-slate-100 text-slate-600 border-slate-200' 
+                                    : 'bg-slate-900 text-slate-400 border-slate-800'
                               }`}>
                                 {item.label}
                               </span>
@@ -7540,7 +7950,7 @@ export default function App() {
                         <div className={`px-4 py-4 text-center text-xs font-mono ${
                           isLight ? 'text-slate-500' : 'text-slate-400'
                         }`}>
-                          No exact terms found in Whoosh index for &ldquo;{searchQuery}&rdquo;. Press Enter to full-text search.
+                          No matching query suggestions or index terms found for &ldquo;{searchQuery}&rdquo;. Press Enter to full-text search.
                         </div>
                       )}
                     </div>
@@ -7938,6 +8348,115 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Right: DuckDuckGo-Style Controls (Region Filter, SafeSearch, !Bangs, and Clear All Trace) */}
+              <div className="flex items-center gap-1.5 sm:gap-2 pb-1.5 sm:pb-0 shrink-0">
+                {/* 1. Region / Country Filter */}
+                <RegionFilterDropdown
+                  selectedRegion={selectedRegion}
+                  onSelectRegion={(reg) => {
+                    setSelectedRegion(reg);
+                    try {
+                      localStorage.setItem('isaac_region_filter', reg);
+                    } catch (_) {}
+                    const rObj = getRegionByCode(reg);
+                    showToast(`Region set to ${rObj.flag} ${rObj.name}`, 'info');
+                    if (searchQuery.trim()) {
+                      setTimeout(() => handleSearch(searchQuery), 10);
+                    }
+                  }}
+                  isLight={isLight}
+                />
+
+                {/* 2. SafeSearch Menu Toggle */}
+                <div className="relative inline-block text-left">
+                  <button
+                    id="safesearch-toggle-btn"
+                    type="button"
+                    onClick={() => setShowSafeSearchMenu(!showSafeSearchMenu)}
+                    title={`SafeSearch: currently ${safeSearchLevel.toUpperCase()}`}
+                    className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-medium border transition-all cursor-pointer active:scale-95 shrink-0 ${
+                      safeSearchLevel !== 'off'
+                        ? isLight
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100 shadow-sm'
+                          : 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/50 shadow-sm'
+                        : isLight
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="capitalize">{safeSearchLevel}</span>
+                    <ChevronDown className="w-3 h-3 text-slate-400" />
+                  </button>
+
+                  <AnimatePresence>
+                    {showSafeSearchMenu && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                        className={`absolute right-0 mt-2 w-52 rounded-2xl shadow-xl border overflow-hidden z-50 p-1 flex flex-col gap-0.5 ${
+                          isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#070e24] border-slate-800 text-slate-100'
+                        }`}
+                      >
+                        {(['strict', 'moderate', 'off'] as SafeSearchLevel[]).map((lvl) => (
+                          <button
+                            key={lvl}
+                            type="button"
+                            onClick={() => {
+                              setSafeSearchLevel(lvl);
+                              setStoredSafeSearch(lvl);
+                              setShowSafeSearchMenu(false);
+                              showToast(`SafeSearch set to ${lvl.toUpperCase()}`, 'info');
+                            }}
+                            className={`px-3 py-2 rounded-xl text-xs font-medium flex items-center justify-between cursor-pointer ${
+                              safeSearchLevel === lvl
+                                ? isLight ? 'bg-emerald-50 text-emerald-700 font-bold' : 'bg-emerald-950/60 text-emerald-300 font-bold'
+                                : isLight ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-900 text-slate-300'
+                            }`}
+                          >
+                            <span className="capitalize">{lvl}</span>
+                            {safeSearchLevel === lvl && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* 3. !Bangs Directory button */}
+                <button
+                  id="duck-bangs-btn"
+                  type="button"
+                  onClick={() => setShowBangsModal(true)}
+                  title="Explore DuckDuckGo !bangs shortcuts (e.g. !w, !gh, !yt)"
+                  className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer active:scale-95 ${
+                    isLight
+                      ? 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100 shadow-sm'
+                      : 'bg-purple-950/40 border-purple-800/80 text-purple-300 hover:bg-purple-900/60 shadow-sm'
+                  }`}
+                >
+                  <span className="text-[11px] font-mono font-extrabold text-purple-400 leading-none">!</span>
+                  <span>Bangs</span>
+                </button>
+
+                {/* 4. Clear All Trace button (DuckDuckGo Fire Button equivalent) */}
+                <button
+                  id="clear-all-trace-btn"
+                  type="button"
+                  onClick={() => setShowClearTraceModal(true)}
+                  title="Clear All Trace — Erase searches, history & reset session"
+                  className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer active:scale-95 ${
+                    isLight
+                      ? 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100 hover:border-orange-300 shadow-sm'
+                      : 'bg-orange-950/40 border-orange-800/80 text-orange-300 hover:bg-orange-900/60 hover:border-orange-600 shadow-sm'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                  <span className="hidden sm:inline">Clear All Trace</span>
+                  <span className="sm:hidden">Clear</span>
+                </button>
+              </div>
             </div>
 
             {/* Zero-Click Instant Answer Widget (DuckDuckGo style) */}
@@ -8906,6 +9425,47 @@ export default function App() {
                     ))}
                   </AnimatePresence>
 
+                  {/* Searches related to X (Google Style) */}
+                  {searchQuery.trim().length > 0 && relatedSearches.length > 0 && (
+                    <motion.div
+                      id="searches-related-to-section"
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="my-5 p-5 rounded-2xl bg-[#070e24]/90 border border-slate-800 shadow-lg"
+                    >
+                      <div className="flex items-center gap-2 mb-3.5">
+                        <Sparkles className="w-4 h-4 text-blue-400" />
+                        <h3 className="text-sm font-semibold font-sans tracking-wide text-slate-100 flex items-center gap-1.5 flex-wrap">
+                          <span>Searches related to</span>
+                          <span className="text-blue-400 font-bold">&ldquo;{searchQuery.trim()}&rdquo;</span>
+                        </h3>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                        {relatedSearches.map((item, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setSearchQuery(item);
+                              handleSearch(item);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            className="flex items-center justify-between p-3 rounded-xl bg-[#030712]/90 hover:bg-blue-950/40 border border-slate-800 hover:border-blue-500/50 transition-all text-left group cursor-pointer active:scale-[0.98]"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-400 shrink-0 transition-colors" />
+                              <span className="text-xs text-slate-300 group-hover:text-white font-sans truncate">
+                                {item}
+                              </span>
+                            </div>
+                            <ArrowUpRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-blue-400 shrink-0 opacity-0 group-hover:opacity-100 transition-all" />
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
                   {/* Show More Results Footer */}
                   {filteredSearchResults.length > 0 && (
                     <div className="pt-2 pb-4 flex flex-col items-center gap-3">
@@ -8922,18 +9482,18 @@ export default function App() {
                           <span className="text-[11px] text-slate-400 font-sans">
                             {visibleResultsCount < filteredSearchResults.length
                               ? `${filteredSearchResults.length - visibleResultsCount} more indexed match${filteredSearchResults.length - visibleResultsCount === 1 ? '' : 'es'} ready to view immediately`
-                              : 'Click Show More to load the next batch of results from the index & live SearXNG metasearch'}
+                              : 'Click More results to load the next batch of results from the index & live SearXNG metasearch'}
                           </span>
                         </div>
 
                         <div className="flex items-center gap-2.5 shrink-0">
-                          {visibleResultsCount > 6 && (
+                          {visibleResultsCount > 20 && (
                             <button
                               type="button"
                               id="show-less-results-btn"
                               onClick={() => {
-                                setVisibleResultsCount(6);
-                                showToast('Collapsed back to top 6 search results', 'info');
+                                setVisibleResultsCount(20);
+                                showToast('Collapsed back to top 20 search results', 'info');
                               }}
                               className="px-3.5 py-2.5 rounded-xl border border-slate-800 bg-[#030712]/80 hover:bg-slate-900 text-slate-400 hover:text-slate-200 text-xs font-bold font-sans transition-all cursor-pointer active:scale-95"
                             >
@@ -8956,10 +9516,14 @@ export default function App() {
                             ) : (
                               <>
                                 <Plus className="w-4 h-4" />
-                                <span>Show More</span>
-                                {visibleResultsCount < filteredSearchResults.length && (
+                                <span>More results</span>
+                                {visibleResultsCount < filteredSearchResults.length ? (
                                   <span className="px-1.5 py-0.5 rounded-full bg-white/20 text-[10px] font-mono">
-                                    +{Math.min(6, filteredSearchResults.length - visibleResultsCount)}
+                                    +{Math.min(15, filteredSearchResults.length - visibleResultsCount)}
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-white/20 text-[10px] font-mono">
+                                    +15
                                   </span>
                                 )}
                               </>
@@ -17290,6 +17854,111 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* DuckDuckGo !bangs Directory Modal */}
+      <BangsModal
+        isOpen={showBangsModal}
+        onClose={() => setShowBangsModal(false)}
+        onSelectBang={(bang) => {
+          setSearchQuery(bang.prefix + ' ');
+          if (searchInputRef.current) {
+            searchInputRef.current.focus();
+          }
+        }}
+        isLight={isLight}
+      />
+
+      {/* DuckDuckGo Clear All Trace (Fire Button equivalent) Modal */}
+      <ClearTraceModal
+        isOpen={showClearTraceModal}
+        onClose={() => setShowClearTraceModal(false)}
+        onConfirmClear={handleClearAllTrace}
+        isLight={isLight}
+        searchHistoryCount={searchHistory.length}
+        hasActiveFilters={Boolean(filterDomain || filterMinBacklinks > 0 || filterDateRange !== 'any' || selectedRegion !== 'all')}
+      />
+
+      {/* Fullscreen Trace Erase / Burning Animation Overlay */}
+      <AnimatePresence>
+        {isBurningTraces && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/85 backdrop-blur-md text-white select-none pointer-events-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.8, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="flex flex-col items-center gap-4 text-center p-6"
+            >
+              <div className="relative">
+                <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-orange-600 via-amber-500 to-red-500 flex items-center justify-center shadow-[0_0_50px_rgba(249,115,22,0.8)] animate-pulse">
+                  <Flame className="w-10 h-10 text-white animate-bounce" />
+                </div>
+                <div className="absolute -inset-2 rounded-full border border-orange-500/40 animate-ping pointer-events-none" />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <h3 className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-orange-300 via-amber-200 to-yellow-200 bg-clip-text text-transparent">
+                  Clearing All Trace...
+                </h3>
+                <p className="text-xs text-orange-200/80 font-mono">
+                  Burning session history, purging cache, and anonymizing environment
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 mt-2">
+                <span className="w-2 h-2 rounded-full bg-orange-400 animate-ping" />
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping delay-100" />
+                <span className="w-2 h-2 rounded-full bg-red-400 animate-ping delay-200" />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* DuckDuckGo !bang Dispatch Notification Banner */}
+      <AnimatePresence>
+        {bangDispatchNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[92%] p-3.5 rounded-2xl bg-gradient-to-r from-purple-950/95 to-indigo-950/95 border border-purple-500/50 shadow-2xl text-white flex items-center justify-between gap-3 backdrop-blur-md"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="text-lg">⚡</span>
+              <div className="text-xs min-w-0">
+                <div className="font-bold truncate">
+                  !bang redirect: <strong>{bangDispatchNotice.bangName}</strong>
+                </div>
+                <div className="text-purple-300 text-[11px] truncate">
+                  Opening &ldquo;{bangDispatchNotice.query}&rdquo; ({bangDispatchNotice.prefix})
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <a
+                href={bangDispatchNotice.url}
+                target="_blank"
+                rel="noreferrer"
+                className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Open Site
+              </a>
+              <button
+                onClick={() => setBangDispatchNotice(null)}
+                className="p-1 text-purple-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
