@@ -1769,14 +1769,76 @@ async function startServer() {
     res.json([]);
   });
 
-  app.get('/api/search/videos', async (req: Request, res: Response) => {
-    const queryStr = String(req.query.q || '').trim();
-    const pageNum = Math.max(1, Number(req.query.page) || 1);
-    if (!queryStr) {
-      res.json([]);
-      return;
+  const videoSearchCache = new Map<string, { timestamp: number; results: any[] }>();
+
+  async function searchLiveVideos(queryStr: string, pageNum: number = 1): Promise<any[]> {
+    const cacheKey = `${queryStr.toLowerCase().trim()}_${pageNum}`;
+    const cached = videoSearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+      return cached.results;
     }
 
+    // 1. Live YouTube search extraction (retrieves real video IDs, channels, thumbnails, and play urls)
+    try {
+      const ytUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(queryStr)}`;
+      const response = await fetch(ytUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        },
+        signal: AbortSignal.timeout(4500)
+      });
+
+      if (response.ok) {
+        const html = await response.text();
+        const match = html.match(/var ytInitialData = ({.*?});<\/script>/s) || html.match(/ytInitialData\s*=\s*({.+?});/);
+        if (match) {
+          const data = JSON.parse(match[1]);
+          const sections = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
+          const videos: any[] = [];
+          for (const sec of sections) {
+            const items = sec?.itemSectionRenderer?.contents || [];
+            for (const item of items) {
+              const vr = item.videoRenderer;
+              if (vr && vr.videoId) {
+                const videoId = String(vr.videoId);
+                const title = vr.title?.runs?.map((r: any) => r.text).join('') || vr.title?.simpleText || '';
+                if (!title) continue;
+                const channel = vr.ownerText?.runs?.map((r: any) => r.text).join('') || vr.longBylineText?.runs?.map((r: any) => r.text).join('') || '';
+                const duration = vr.lengthText?.simpleText || '';
+                const views = vr.viewCountText?.simpleText || vr.shortViewCountText?.simpleText || '';
+                const uploadedAt = vr.publishedTimeText?.simpleText || '';
+                const snippet = vr.detailedMetadataSnippets?.[0]?.snippetText?.runs?.map((r: any) => r.text).join('') ||
+                                vr.descriptionSnippet?.runs?.map((r: any) => r.text).join('') || '';
+                const thumbnail = vr.thumbnail?.thumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+                videos.push({
+                  id: videoId,
+                  title,
+                  url: `https://www.youtube.com/watch?v=${videoId}`,
+                  embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0`,
+                  channel,
+                  duration,
+                  views,
+                  uploadedAt,
+                  snippet,
+                  thumbnail,
+                  tags: [queryStr.toLowerCase()]
+                });
+              }
+            }
+          }
+          if (videos.length > 0) {
+            const sliced = videos.slice(0, 24);
+            videoSearchCache.set(cacheKey, { timestamp: Date.now(), results: sliced });
+            return sliced;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. SearXNG custom or public instances
     const customUrl = process.env.SEARXNG_URL?.trim().replace(/\/$/, '');
     const candidateInstances = customUrl
       ? [customUrl, ...PUBLIC_SEARXNG_INSTANCES]
@@ -1797,28 +1859,78 @@ async function startServer() {
         const rawResults = Array.isArray(data?.results) ? data.results : [];
         const videos = rawResults
           .filter((r: any) => r && r.url && r.title)
-          .slice(0, 12)
-          .map((r: any, idx: number) => ({
-            id: `vid_${pageNum}_${idx}`,
-            title: r.title,
-            url: r.url,
-            embedUrl: r.iframe_src || undefined,
-            thumbnail: r.thumbnail || r.img_src || '',
-            channel: r.author || (() => { try { return new URL(r.url).hostname; } catch (_) { return ''; } })(),
-            duration: r.duration || r.length || '',
-            views: '',
-            uploadedAt: r.publishedDate ? String(r.publishedDate).slice(0, 10) : '',
-            snippet: r.content || '',
-            tags: [queryStr.toLowerCase()]
-          }));
+          .slice(0, 16)
+          .map((r: any, idx: number) => {
+            let vidId = `vid_${pageNum}_${idx}`;
+            let embedUrl = r.iframe_src;
+            const ytMatch = r.url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+            if (ytMatch) {
+              vidId = ytMatch[1];
+              embedUrl = `https://www.youtube-nocookie.com/embed/${vidId}?autoplay=1&rel=0`;
+            }
+            return {
+              id: vidId,
+              title: r.title,
+              url: r.url,
+              embedUrl: embedUrl || (vidId ? `https://www.youtube-nocookie.com/embed/${vidId}?autoplay=1&rel=0` : undefined),
+              thumbnail: r.thumbnail || r.img_src || (ytMatch ? `https://i.ytimg.com/vi/${ytMatch[1]}/hqdefault.jpg` : ''),
+              channel: r.author || (() => { try { return new URL(r.url).hostname; } catch (_) { return ''; } })(),
+              duration: r.duration || r.length || '',
+              views: '',
+              uploadedAt: r.publishedDate ? String(r.publishedDate).slice(0, 10) : '',
+              snippet: r.content || '',
+              tags: [queryStr.toLowerCase()]
+            };
+          });
         if (videos.length > 0) {
-          res.json(videos);
-          return;
+          videoSearchCache.set(cacheKey, { timestamp: Date.now(), results: videos });
+          return videos;
         }
       } catch (_) {}
     }
 
-    res.json([]);
+    // 3. Invidious fallback
+    const invidiousInstances = ['https://inv.nadeko.net', 'https://invidious.nerdvpn.de', 'https://vid.priv.au'];
+    for (const inv of invidiousInstances) {
+      try {
+        const invUrl = `${inv}/api/v1/search?q=${encodeURIComponent(queryStr)}&type=video`;
+        const response = await fetch(invUrl, { signal: AbortSignal.timeout(2500) });
+        if (response.ok) {
+          const data: any = await response.json();
+          if (Array.isArray(data) && data.length > 0) {
+            const videos = data.slice(0, 16).map((item: any) => ({
+              id: item.videoId,
+              title: item.title,
+              url: `https://www.youtube.com/watch?v=${item.videoId}`,
+              embedUrl: `https://www.youtube-nocookie.com/embed/${item.videoId}?autoplay=1&rel=0`,
+              channel: item.author,
+              duration: item.lengthSeconds ? `${Math.floor(item.lengthSeconds / 60)}:${String(item.lengthSeconds % 60).padStart(2, '0')}` : '',
+              views: item.viewCount ? `${Number(item.viewCount).toLocaleString()} views` : '',
+              uploadedAt: item.publishedText || '',
+              snippet: item.description || '',
+              thumbnail: item.videoThumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
+              tags: [queryStr.toLowerCase()]
+            }));
+            videoSearchCache.set(cacheKey, { timestamp: Date.now(), results: videos });
+            return videos;
+          }
+        }
+      } catch (_) {}
+    }
+
+    return [];
+  }
+
+  app.get('/api/search/videos', async (req: Request, res: Response) => {
+    const queryStr = String(req.query.q || '').trim();
+    const pageNum = Math.max(1, Number(req.query.page) || 1);
+    if (!queryStr) {
+      res.json([]);
+      return;
+    }
+
+    const videos = await searchLiveVideos(queryStr, pageNum);
+    res.json(videos);
   });
 
   app.get('/api/pages/:id', (req: Request, res: Response) => {

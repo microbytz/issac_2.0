@@ -20,7 +20,10 @@ import {
   Clock,
   Server,
   Smartphone,
-  RefreshCw
+  RefreshCw,
+  Flame,
+  ShieldCheck,
+  ChevronDown
 } from 'lucide-react';
 import {
   getBackendBaseUrl,
@@ -29,6 +32,7 @@ import {
   isMobileOrNativeApp,
   DEFAULT_REMOTE_BACKEND_URL
 } from '../utils/apiConfig';
+import { SafeSearchLevel } from '../utils/safeSearchUtils';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -41,6 +45,10 @@ export interface SettingsModalProps {
   onToggleTheme?: () => void;
   sessionId?: string;
   onNotify?: (message: string, type: 'success' | 'error' | 'info') => void;
+  safeSearchLevel?: SafeSearchLevel;
+  onSetSafeSearchLevel?: (level: SafeSearchLevel) => void;
+  onOpenClearTrace?: () => void;
+  defaultTab?: 'privacy' | 'display' | 'server';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -53,10 +61,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isLight,
   onToggleTheme,
   sessionId,
-  onNotify
+  onNotify,
+  safeSearchLevel = 'moderate',
+  onSetSafeSearchLevel,
+  onOpenClearTrace,
+  defaultTab = 'privacy'
 }) => {
+  const [settingsTab, setSettingsTab] = useState<'privacy' | 'display' | 'server'>(defaultTab);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [lastSessionTerminationTest, setLastSessionTerminationTest] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (defaultTab) {
+      setSettingsTab(defaultTab);
+    }
+  }, [defaultTab, isOpen]);
 
   const [serverUrlInput, setServerUrlInput] = useState<string>(() => {
     return getCustomServerUrl() || (isMobileOrNativeApp() ? DEFAULT_REMOTE_BACKEND_URL : '');
@@ -211,191 +230,418 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Body content */}
           <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto no-scrollbar">
-            {/* Primary Section: Search History & Privacy */}
-            <div
-              className={`p-5 rounded-2xl border transition-all ${
-                isLight
-                  ? 'bg-slate-50/70 border-slate-200 shadow-xs'
-                  : 'bg-[#0b1328]/50 border-slate-800'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-                    <Shield className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold font-sans">Search History & Privacy</h3>
-                    <p className="text-xs text-slate-500">Manage query caching and browser termination behavior</p>
-                  </div>
-                </div>
-
-                <span
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                    clearHistoryOnExit
-                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                      : 'bg-slate-500/10 border-slate-500/20 text-slate-400'
-                  }`}
-                >
-                  {clearHistoryOnExit ? 'Wipe on Exit Active' : 'Standard Persistence'}
-                </span>
-              </div>
-
-              {/* The "Clear History on Exit" Toggle Item */}
-              <div
-                id="clear-history-on-exit-setting-row"
-                className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
-                  isLight
-                    ? clearHistoryOnExit
-                      ? 'bg-blue-50/50 border-blue-200/80'
-                      : 'bg-white border-slate-200'
-                    : clearHistoryOnExit
-                    ? 'bg-blue-950/20 border-blue-500/30'
-                    : 'bg-slate-900/40 border-slate-800/80'
+            {/* Settings Tab Navigation */}
+            <div className={`flex items-center gap-1.5 p-1 rounded-xl border ${
+              isLight ? 'bg-slate-100/90 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+            }`}>
+              <button
+                type="button"
+                onClick={() => setSettingsTab('privacy')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  settingsTab === 'privacy'
+                    ? isLight
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'bg-blue-600 text-white shadow-sm'
+                    : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <div className="space-y-1 pr-2">
-                  <div className="flex items-center gap-2">
-                    <label
-                      htmlFor="clear-history-on-exit-toggle"
-                      className="text-sm font-bold font-sans cursor-pointer select-none"
-                    >
-                      Clear History on Exit
-                    </label>
-                    <span
-                      className={`text-[9px] font-mono uppercase px-1.5 py-0.2 rounded border ${
-                        clearHistoryOnExit
-                          ? 'bg-blue-500/20 text-blue-300 border-blue-500/30 font-bold'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}
-                    >
-                      localStorage
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Automatically purge all recent search history from <code className="text-[11px] font-mono px-1 py-0.5 rounded bg-black/20 text-blue-300">localStorage</code> when this browser session terminates or the window is closed.
-                  </p>
-                </div>
-
-                {/* Custom Toggle Switch */}
-                <div className="shrink-0 flex items-center gap-3">
-                  <button
-                    id="clear-history-on-exit-toggle"
-                    role="switch"
-                    aria-checked={clearHistoryOnExit}
-                    onClick={onToggleClearHistoryOnExit}
-                    type="button"
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                      clearHistoryOnExit
-                        ? 'bg-blue-600'
-                        : isLight
-                        ? 'bg-slate-300'
-                        : 'bg-slate-700'
-                    }`}
-                  >
-                    <span className="sr-only">Toggle Clear History on Exit</span>
-                    <span
-                      aria-hidden="true"
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                        clearHistoryOnExit ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-
-              {/* Notice & Lifecycle Explanation */}
-              <div
-                className={`mt-3 p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
-                  isLight
-                    ? 'bg-blue-50/30 border-blue-200/60 text-slate-600'
-                    : 'bg-blue-950/20 border-blue-900/40 text-slate-400'
+                <Shield className="w-3.5 h-3.5" />
+                <span>Search & Privacy</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsTab('display')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  settingsTab === 'display'
+                    ? isLight
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'bg-blue-600 text-white shadow-sm'
+                    : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                <div className="text-[11px] leading-relaxed">
-                  <span className="font-semibold text-slate-300">How it works: </span>
-                  While browsing, searches remain accessible for navigation. Once the browser session terminates (tab close, window exit, or browser restart), the application invokes the purge handler and clears cached queries from storage.
-                </div>
-              </div>
-
-              {/* Current Storage Snapshot & Manual Clear Action */}
-              <div className="mt-4 pt-4 border-t border-slate-800/60 flex flex-col gap-3">
-                <div className="flex items-center justify-between text-xs flex-wrap gap-2">
-                  <span className="text-slate-400 flex items-center gap-1.5">
-                    <History className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Currently stored queries:</span>
-                    <span className="font-mono font-bold text-slate-200">
-                      {searchHistory.length} {searchHistory.length === 1 ? 'item' : 'items'}
-                    </span>
-                  </span>
-
-                  {searchHistory.length > 0 && (
-                    <button
-                      id="settings-clear-history-now-btn"
-                      onClick={() => setShowConfirmClear(true)}
-                      type="button"
-                      className="px-2.5 py-1 text-xs font-bold text-red-400 hover:text-red-300 bg-red-950/30 hover:bg-red-900/40 border border-red-800/40 rounded-lg cursor-pointer transition-all flex items-center gap-1 active:scale-95"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>Wipe History Now</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* History Chips */}
-                {searchHistory.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {searchHistory.map((query, idx) => (
-                      <span
-                        key={idx}
-                        className={`px-2 py-0.5 rounded-md text-[11px] font-mono border ${
-                          isLight
-                            ? 'bg-slate-100 border-slate-200 text-slate-700'
-                            : 'bg-slate-900/80 border-slate-800 text-slate-300'
-                        }`}
-                      >
-                        {query}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-slate-500 italic">No search history currently stored.</p>
-                )}
-
-                {/* Confirm Wipe Prompt */}
-                {showConfirmClear && (
-                  <div
-                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs animate-fade-in ${
-                      isLight ? 'bg-red-50 border-red-200 text-red-800' : 'bg-red-950/40 border-red-900 text-red-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                      <span>Erase all search history from localStorage immediately?</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={handleManualClear}
-                        type="button"
-                        className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-xs cursor-pointer shadow-xs"
-                      >
-                        Yes, Erase
-                      </button>
-                      <button
-                        onClick={() => setShowConfirmClear(false)}
-                        type="button"
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                <Sun className="w-3.5 h-3.5" />
+                <span>Theme & Display</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsTab('server')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  settingsTab === 'server'
+                    ? isLight
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'bg-blue-600 text-white shadow-sm'
+                    : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Server className="w-3.5 h-3.5" />
+                <span>Server & Sync</span>
+              </button>
             </div>
 
-            {/* Secondary Section: System & Appearance */}
+            {settingsTab === 'privacy' && (
+              <>
+                {/* 1. SafeSearch Protection */}
+                <div
+                  className={`p-5 rounded-2xl border transition-all ${
+                    isLight ? 'bg-slate-50/70 border-slate-200 shadow-xs' : 'bg-[#0b1328]/50 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                        <ShieldCheck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold font-sans">SafeSearch Protection</h3>
+                        <p className="text-xs text-slate-500">Filter explicit content across web queries and media results</p>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border uppercase ${
+                        safeSearchLevel === 'strict'
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                          : safeSearchLevel === 'moderate'
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                          : 'bg-slate-500/10 border-slate-500/20 text-slate-400'
+                      }`}
+                    >
+                      {safeSearchLevel} Active
+                    </span>
+                  </div>
+
+                  <div
+                    id="safesearch-setting-row"
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                    }`}
+                  >
+                    <div className="space-y-1 pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold font-sans select-none">SafeSearch Mode</span>
+                        <span
+                          className={`text-[9px] font-mono uppercase px-1.5 py-0.2 rounded border ${
+                            safeSearchLevel !== 'off'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-bold'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          {safeSearchLevel}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Choose filtering level for web text, images, videos, and crawler results. Strict hides all sensitive material; Moderate balances safety and information.
+                      </p>
+                    </div>
+
+                    {/* SafeSearch Toggle and Level Options */}
+                    <div className="shrink-0 flex items-center gap-1.5 flex-wrap">
+                      <button
+                        id="safesearch-toggle-btn"
+                        type="button"
+                        onClick={() => {
+                          const nextLvl: SafeSearchLevel =
+                            safeSearchLevel === 'strict' ? 'moderate' : safeSearchLevel === 'moderate' ? 'off' : 'strict';
+                          onSetSafeSearchLevel?.(nextLvl);
+                          if (onNotify) {
+                            onNotify(`SafeSearch set to ${nextLvl.toUpperCase()}`, 'info');
+                          }
+                        }}
+                        title={`SafeSearch: currently ${safeSearchLevel.toUpperCase()} (Click to cycle)`}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer active:scale-95 ${
+                          safeSearchLevel !== 'off'
+                            ? isLight
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100 shadow-sm'
+                              : 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/50 shadow-sm'
+                            : isLight
+                              ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                              : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="capitalize">{safeSearchLevel}</span>
+                        <ChevronDown className="w-3 h-3 text-slate-400" />
+                      </button>
+
+                      {(['strict', 'moderate', 'off'] as SafeSearchLevel[]).map((lvl) => (
+                        <button
+                          key={lvl}
+                          type="button"
+                          onClick={() => {
+                            onSetSafeSearchLevel?.(lvl);
+                            if (onNotify) {
+                              onNotify(`SafeSearch set to ${lvl.toUpperCase()}`, 'info');
+                            }
+                          }}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer capitalize active:scale-95 ${
+                            safeSearchLevel === lvl
+                              ? isLight
+                                ? 'bg-emerald-100 border-emerald-400 text-emerald-800 font-bold'
+                                : 'bg-emerald-900/60 border-emerald-500 text-emerald-200 font-bold'
+                              : isLight
+                                ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                                : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {lvl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Clear All Trace (DuckDuckGo Fire Button equivalent) */}
+                <div
+                  className={`p-5 rounded-2xl border transition-all ${
+                    isLight ? 'bg-orange-50/40 border-orange-200 shadow-xs' : 'bg-orange-950/15 border-orange-900/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400">
+                        <Flame className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold font-sans">Clear All Trace</h3>
+                        <p className="text-xs text-slate-500">Instant privacy wipe — reset all session, filter, and cache data</p>
+                      </div>
+                    </div>
+
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border bg-orange-500/10 border-orange-500/30 text-orange-400 uppercase">
+                      DuckDuckGo Fire
+                    </span>
+                  </div>
+
+                  <div
+                    id="clear-all-trace-setting-row"
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
+                      isLight ? 'bg-white border-orange-200/80' : 'bg-slate-900/40 border-slate-800/80'
+                    }`}
+                  >
+                    <div className="space-y-1 pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold font-sans select-none">Erase Session & Trace</span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Purges active search queries, cached results, recent search history, region cookies, and triggers the fire-burn animation.
+                      </p>
+                    </div>
+
+                    <div className="shrink-0">
+                      <button
+                        id="clear-all-trace-btn"
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenClearTrace?.();
+                        }}
+                        title="Clear All Trace — Erase searches, history & reset session"
+                        className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer active:scale-95 shadow-sm ${
+                          isLight
+                            ? 'bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100 hover:border-orange-400'
+                            : 'bg-orange-950/40 border-orange-800/80 text-orange-300 hover:bg-orange-900/60 hover:border-orange-600'
+                        }`}
+                      >
+                        <Flame className="w-4 h-4 text-orange-400 shrink-0" />
+                        <span>Clear All Trace</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Search History & Privacy Persistence */}
+                <div
+                  className={`p-5 rounded-2xl border transition-all ${
+                    isLight
+                      ? 'bg-slate-50/70 border-slate-200 shadow-xs'
+                      : 'bg-[#0b1328]/50 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                        <Shield className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold font-sans">Search History & Storage</h3>
+                        <p className="text-xs text-slate-500">Manage query caching and browser termination behavior</p>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                        clearHistoryOnExit
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                          : 'bg-slate-500/10 border-slate-500/20 text-slate-400'
+                      }`}
+                    >
+                      {clearHistoryOnExit ? 'Wipe on Exit Active' : 'Standard Persistence'}
+                    </span>
+                  </div>
+
+                  {/* The "Clear History on Exit" Toggle Item */}
+                  <div
+                    id="clear-history-on-exit-setting-row"
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
+                      isLight
+                        ? clearHistoryOnExit
+                          ? 'bg-blue-50/50 border-blue-200/80'
+                          : 'bg-white border-slate-200'
+                        : clearHistoryOnExit
+                        ? 'bg-blue-950/20 border-blue-500/30'
+                        : 'bg-slate-900/40 border-slate-800/80'
+                    }`}
+                  >
+                    <div className="space-y-1 pr-2">
+                      <div className="flex items-center gap-2">
+                        <label
+                          htmlFor="clear-history-on-exit-toggle"
+                          className="text-sm font-bold font-sans cursor-pointer select-none"
+                        >
+                          Clear History on Exit
+                        </label>
+                        <span
+                          className={`text-[9px] font-mono uppercase px-1.5 py-0.2 rounded border ${
+                            clearHistoryOnExit
+                              ? 'bg-blue-500/20 text-blue-300 border-blue-500/30 font-bold'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          localStorage
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Automatically purge all recent search history from <code className="text-[11px] font-mono px-1 py-0.5 rounded bg-black/20 text-blue-300">localStorage</code> when this browser session terminates or the window is closed.
+                      </p>
+                    </div>
+
+                    {/* Custom Toggle Switch */}
+                    <div className="shrink-0 flex items-center gap-3">
+                      <button
+                        id="clear-history-on-exit-toggle"
+                        role="switch"
+                        aria-checked={clearHistoryOnExit}
+                        onClick={onToggleClearHistoryOnExit}
+                        type="button"
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                          clearHistoryOnExit
+                            ? 'bg-blue-600'
+                            : isLight
+                            ? 'bg-slate-300'
+                            : 'bg-slate-700'
+                        }`}
+                      >
+                        <span className="sr-only">Toggle Clear History on Exit</span>
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                            clearHistoryOnExit ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Notice & Lifecycle Explanation */}
+                  <div
+                    className={`mt-3 p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
+                      isLight
+                        ? 'bg-blue-50/30 border-blue-200/60 text-slate-600'
+                        : 'bg-blue-950/20 border-blue-900/40 text-slate-400'
+                    }`}
+                  >
+                    <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                    <div className="text-[11px] leading-relaxed">
+                      <span className="font-semibold text-slate-300">How it works: </span>
+                      While browsing, searches remain accessible for navigation. Once the browser session terminates (tab close, window exit, or browser restart), the application invokes the purge handler and clears cached queries from storage.
+                    </div>
+                  </div>
+
+                  {/* Current Storage Snapshot & Manual Clear Action */}
+                  <div className="mt-4 pt-4 border-t border-slate-800/60 flex flex-col gap-3">
+                    <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                      <span className="text-slate-400 flex items-center gap-1.5">
+                        <History className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Currently stored queries:</span>
+                        <span className="font-mono font-bold text-slate-200">
+                          {searchHistory.length} {searchHistory.length === 1 ? 'item' : 'items'}
+                        </span>
+                      </span>
+
+                      {searchHistory.length > 0 && (
+                        <button
+                          id="settings-clear-history-now-btn"
+                          onClick={() => setShowConfirmClear(true)}
+                          type="button"
+                          className="px-2.5 py-1 text-xs font-bold text-red-400 hover:text-red-300 bg-red-950/30 hover:bg-red-900/40 border border-red-800/40 rounded-lg cursor-pointer transition-all flex items-center gap-1 active:scale-95"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Wipe History Now</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* History Chips */}
+                    {searchHistory.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {searchHistory.map((query, idx) => (
+                          <span
+                            key={idx}
+                            className={`px-2 py-0.5 rounded-md text-[11px] font-mono border ${
+                              isLight
+                                ? 'bg-slate-100 border-slate-200 text-slate-700'
+                                : 'bg-slate-900/80 border-slate-800 text-slate-300'
+                            }`}
+                          >
+                            {query}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 italic">No search history currently stored.</p>
+                    )}
+
+                    {/* Confirm Wipe Prompt */}
+                    {showConfirmClear && (
+                      <div
+                        className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs animate-fade-in ${
+                          isLight ? 'bg-red-50 border-red-200 text-red-800' : 'bg-red-950/40 border-red-900 text-red-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                          <span>Erase all search history from localStorage immediately?</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={handleManualClear}
+                            type="button"
+                            className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-xs cursor-pointer shadow-xs"
+                          >
+                            Yes, Erase
+                          </button>
+                          <button
+                            onClick={() => setShowConfirmClear(false)}
+                            type="button"
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {settingsTab === 'display' && (
             <div
               className={`p-5 rounded-2xl border transition-all ${
                 isLight
@@ -450,116 +696,121 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </div>
             </div>
+            )}
 
-            {/* Third Section: Backend Server & Mobile Connectivity */}
-            <div
-              className={`p-5 rounded-2xl border transition-all ${
-                isLight
-                  ? 'bg-slate-50/70 border-slate-200 shadow-xs'
-                  : 'bg-[#0b1328]/50 border-slate-800'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-                    <Server className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold font-sans">Server & Mobile Sync</h3>
-                    <p className="text-xs text-slate-500">Cloud backend connection and mobile offline fallback</p>
-                  </div>
-                </div>
+            {settingsTab === 'server' && (
+              <>
+                {/* Third Section: Backend Server & Mobile Connectivity */}
+                <div
+                  className={`p-5 rounded-2xl border transition-all ${
+                    isLight
+                      ? 'bg-slate-50/70 border-slate-200 shadow-xs'
+                      : 'bg-[#0b1328]/50 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                        <Server className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold font-sans">Server & Mobile Sync</h3>
+                        <p className="text-xs text-slate-500">Cloud backend connection and mobile offline fallback</p>
+                      </div>
+                    </div>
 
-                {isMobileOrNativeApp() && (
-                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center gap-1">
-                    <Smartphone className="w-3 h-3" />
-                    <span>Android / Mobile</span>
-                  </span>
-                )}
-              </div>
-
-              <div
-                className={`p-4 rounded-xl border flex flex-col gap-3 ${
-                  isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
-                }`}
-              >
-                <div>
-                  <label className="text-xs font-bold text-slate-300 block mb-1">
-                    Active Backend API Host
-                  </label>
-                  <p className="text-[11px] text-slate-400 mb-2">
-                    Used by search, live crawler, and Fireplexity AI. Mobile app connects to this host to fetch live uncrawled results.
-                  </p>
-                  
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="url"
-                      value={serverUrlInput}
-                      onChange={(e) => setServerUrlInput(e.target.value)}
-                      placeholder={isMobileOrNativeApp() ? DEFAULT_REMOTE_BACKEND_URL : 'Same Origin (/api)'}
-                      className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
-                        isLight
-                          ? 'bg-slate-50 border-slate-300 text-slate-800'
-                          : 'bg-slate-950 border-slate-700 text-slate-200'
-                      }`}
-                     aria-label="Server URL" />
-                    <button
-                      onClick={handleSaveServerUrl}
-                      type="button"
-                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white cursor-pointer active:scale-95 transition-all shadow-xs"
-                    >
-                      Save
-                    </button>
-                    {getCustomServerUrl() && (
-                      <button
-                        onClick={handleResetServerUrl}
-                        type="button"
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 cursor-pointer"
-                        title="Reset to default cloud server"
-                      >
-                        Reset
-                      </button>
+                    {isMobileOrNativeApp() && (
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center gap-1">
+                        <Smartphone className="w-3 h-3" />
+                        <span>Android / Mobile</span>
+                      </span>
                     )}
                   </div>
-                </div>
 
-                {/* Connection Ping Tester */}
-                <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between flex-wrap gap-2 text-xs">
-                  <button
-                    onClick={handleTestServer}
-                    disabled={serverPingStatus.testing}
-                    type="button"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium cursor-pointer active:scale-95 disabled:opacity-50"
+                  <div
+                    className={`p-4 rounded-xl border flex flex-col gap-3 ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                    }`}
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${serverPingStatus.testing ? 'animate-spin text-blue-400' : 'text-slate-400'}`} />
-                    <span>{serverPingStatus.testing ? 'Pinging...' : 'Test Connection'}</span>
-                  </button>
+                    <div>
+                      <label className="text-xs font-bold text-slate-300 block mb-1">
+                        Active Backend API Host
+                      </label>
+                      <p className="text-[11px] text-slate-400 mb-2">
+                        Used by search, live crawler, and Fireplexity AI. Mobile app connects to this host to fetch live uncrawled results.
+                      </p>
+                      
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="url"
+                          value={serverUrlInput}
+                          onChange={(e) => setServerUrlInput(e.target.value)}
+                          placeholder={isMobileOrNativeApp() ? DEFAULT_REMOTE_BACKEND_URL : 'Same Origin (/api)'}
+                          className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                            isLight
+                              ? 'bg-slate-50 border-slate-300 text-slate-800'
+                              : 'bg-slate-950 border-slate-700 text-slate-200'
+                          }`}
+                         aria-label="Server URL" />
+                        <button
+                          onClick={handleSaveServerUrl}
+                          type="button"
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white cursor-pointer active:scale-95 transition-all shadow-xs"
+                        >
+                          Save
+                        </button>
+                        {getCustomServerUrl() && (
+                          <button
+                            onClick={handleResetServerUrl}
+                            type="button"
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                            title="Reset to default cloud server"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                  {serverPingStatus.message && (
-                    <span className={`text-[11px] font-mono flex items-center gap-1 ${
-                      serverPingStatus.success ? 'text-emerald-400 font-bold' : 'text-amber-400'
-                    }`}>
-                      {serverPingStatus.success ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      ) : (
-                        <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    {/* Connection Ping Tester */}
+                    <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between flex-wrap gap-2 text-xs">
+                      <button
+                        onClick={handleTestServer}
+                        disabled={serverPingStatus.testing}
+                        type="button"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium cursor-pointer active:scale-95 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${serverPingStatus.testing ? 'animate-spin text-blue-400' : 'text-slate-400'}`} />
+                        <span>{serverPingStatus.testing ? 'Pinging...' : 'Test Connection'}</span>
+                      </button>
+
+                      {serverPingStatus.message && (
+                        <span className={`text-[11px] font-mono flex items-center gap-1 ${
+                          serverPingStatus.success ? 'text-emerald-400 font-bold' : 'text-amber-400'
+                        }`}>
+                          {serverPingStatus.success ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          )}
+                          <span>{serverPingStatus.message}</span>
+                        </span>
                       )}
-                      <span>{serverPingStatus.message}</span>
-                    </span>
-                  )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Session Information */}
-            <div className="flex items-center justify-between px-2 text-[11px] text-slate-500 font-mono">
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-slate-600" />
-                <span>Session ID:</span>
-                <span className="text-slate-400">{sessionId ? sessionId.slice(0, 12) + '...' : 'active-session'}</span>
-              </span>
-              <span>Storage Key: <code className="text-[10px] text-blue-400">isaac_history</code></span>
-            </div>
+                {/* Session Information */}
+                <div className="flex items-center justify-between px-2 text-[11px] text-slate-500 font-mono">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Session ID:</span>
+                    <span className="text-slate-400">{sessionId ? sessionId.slice(0, 12) + '...' : 'active-session'}</span>
+                  </span>
+                  <span>Storage Key: <code className="text-[10px] text-blue-400">isaac_history</code></span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Footer */}

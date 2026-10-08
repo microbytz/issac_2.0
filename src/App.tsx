@@ -27,6 +27,7 @@ import ProjectExportMenu from './components/ProjectExportMenu';
 import InstantAnswerWidget from './components/InstantAnswerWidget';
 import NewsResultsView from './components/NewsResultsView';
 import VideosResultsView from './components/VideosResultsView';
+import { parseSearchSyntax, matchesSearchSyntax, ParsedSearchSyntax } from './utils/searchSyntaxUtils';
 import { SafeSearchLevel, getStoredSafeSearch, setStoredSafeSearch, filterItemBySafeSearch } from './utils/safeSearchUtils';
 import {
   downloadProjectMarkdown,
@@ -2056,8 +2057,16 @@ export default function App() {
       }
     }
 
+    // DuckDuckGo Search Operators Filter (site:, filetype:, "exact quotes", -exclusion)
+    const syntax = parseSearchSyntax(searchQuery);
+    if (syntax.hasOperators) {
+      finalFiltered = finalFiltered.filter(p => matchesSearchSyntax(p, syntax));
+    }
+
     return finalFiltered;
-  }, [searchResults, searchWithinQuery, excludedDomains, blockedDomains, selectedSearchTags, searchTagFilterLogic, pagesList, safeSearchLevel, selectedRegion]);
+  }, [searchResults, searchWithinQuery, excludedDomains, blockedDomains, selectedSearchTags, searchTagFilterLogic, pagesList, safeSearchLevel, selectedRegion, searchQuery]);
+
+  const activeSearchSyntax = useMemo(() => parseSearchSyntax(searchQuery), [searchQuery]);
   const [pendingApprovalList, setPendingApprovalList] = useState<PendingIndexItem[]>(DEFAULT_PENDING_ITEMS);
   const [autoTaggingServiceActive, setAutoTaggingServiceActive] = useState(true);
   const [requireTagApprovalBeforeIndex, setRequireTagApprovalBeforeIndex] = useState(true);
@@ -3887,17 +3896,22 @@ export default function App() {
       return;
     }
 
+    // 0.5. Search Syntax & Direct Jump (\query)
+    const syntax = parseSearchSyntax(queryStr);
+    const effectiveQuery = syntax.cleanQuery || queryStr;
+    const effectiveDomain = overrideDomain !== undefined ? overrideDomain : (syntax.siteFilter || filterDomain);
+
     setIsSearching(true);
     setCurrentPage(1);
     setVisibleResultsCount(20);
     setShowSuggestions(false);
     setSearchWithinQuery('');
-    fetchImages(queryStr);
+    fetchImages(effectiveQuery);
     
     // Save to history
     saveToHistory(queryStr);
 
-    let backendUrl = `${API_BASE}/search?q=${encodeURIComponent(queryStr)}&page=1&limit=25&fallback=${searxngFallbackEnabled}&auto_index=${searxngAutoIndex}&min_results=${searxngMinResults}`;
+    let backendUrl = `${API_BASE}/search?q=${encodeURIComponent(effectiveQuery)}&page=1&limit=25&fallback=${searxngFallbackEnabled}&auto_index=${searxngAutoIndex}&min_results=${searxngMinResults}`;
     if (selectedRegion && selectedRegion !== 'all') {
       backendUrl += `&region=${encodeURIComponent(selectedRegion)}`;
     }
@@ -3905,8 +3919,8 @@ export default function App() {
       backendUrl += `&force_fallback=true`;
     }
     
-    const domainToUse = overrideDomain !== undefined ? overrideDomain : filterDomain;
-    if (domainToUse.trim()) {
+    const domainToUse = effectiveDomain;
+    if (domainToUse && domainToUse.trim()) {
       backendUrl += `&domain=${encodeURIComponent(domainToUse.trim())}`;
     }
     if (filterMinBacklinks > 0) {
@@ -3993,6 +4007,19 @@ export default function App() {
         }
         setSearchResults(enrichedResults);
         setSpellcheck(data.spellcheck || null);
+
+        // Direct Jump (\query) dispatch
+        if (syntax.isDirectJump && enrichedResults.length > 0 && enrichedResults[0]?.url) {
+          const directTarget = enrichedResults[0];
+          showToast(`Direct jumping to ${directTarget.title || directTarget.url}...`, 'info');
+          setTimeout(() => {
+            try {
+              window.open(directTarget.url, '_blank');
+            } catch (_) {
+              window.location.href = directTarget.url;
+            }
+          }, 350);
+        }
 
         if (Array.isArray(data.related_searches) && data.related_searches.length > 0) {
           setRelatedSearches(data.related_searches);
@@ -4168,6 +4195,19 @@ export default function App() {
 
         setSearchResults(processedResults);
         setRelatedSearches(generateClientRelatedSearches(queryStr, processedResults));
+        
+        // Direct Jump (\query) dispatch for local results
+        if (syntax.isDirectJump && processedResults.length > 0 && processedResults[0]?.url) {
+          const directTarget = processedResults[0];
+          showToast(`Direct jumping to ${directTarget.title || directTarget.url}...`, 'info');
+          setTimeout(() => {
+            try {
+              window.open(directTarget.url, '_blank');
+            } catch (_) {
+              window.location.href = directTarget.url;
+            }
+          }, 350);
+        }
         
         // Simple Spellcheck generator
         if (queryStr === 'fastapdoc') {
@@ -7335,25 +7375,8 @@ export default function App() {
               </span>
             </button>
 
-            {/* Top Right Controls: Clear All Trace, Settings & Theme Toggle */}
+            {/* Top Right Controls: Settings & Theme Toggle */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              {/* Clear All Trace (DuckDuckGo Fire Button equivalent) */}
-              <button
-                id="global-clear-trace-btn"
-                onClick={() => setShowClearTraceModal(true)}
-                type="button"
-                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 min-h-[38px] ${
-                  isLight
-                    ? 'bg-orange-50/80 border-orange-200 text-orange-700 hover:bg-orange-100 hover:border-orange-300 shadow-orange-100/50'
-                    : 'bg-orange-950/30 border-orange-800/80 text-orange-300 hover:bg-orange-900/50 hover:border-orange-600 shadow-orange-950/40'
-                }`}
-                title="Clear All Trace — Erase searches, history & filters"
-                aria-label="Clear All Trace"
-              >
-                <Flame className="w-4 h-4 text-orange-400 shrink-0" />
-                <span className="hidden sm:inline">Clear All Trace</span>
-              </button>
-
               <button
                 id="global-settings-btn"
                 onClick={() => setShowSettingsModal(true)}
@@ -7971,6 +7994,91 @@ export default function App() {
               </AnimatePresence>
             </div>
 
+            {/* Search Operators Active Bar (site:, filetype:, quotes, -negation) */}
+            {activeSearchSyntax.hasOperators && (
+              <div className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 bg-blue-950/30 border border-blue-500/20 rounded-xl text-xs -mt-1 select-none animate-fade-in">
+                <span className="text-[11px] font-mono font-bold text-blue-400 flex items-center gap-1 shrink-0">
+                  <span>🦆 Operators:</span>
+                </span>
+
+                {activeSearchSyntax.siteFilter && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/15 border border-blue-500/30 text-blue-300 text-[11px] font-mono">
+                    <span>site:<strong>{activeSearchSyntax.siteFilter}</strong></span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const regex = new RegExp(`\\bsite:${activeSearchSyntax.siteFilter}\\b`, 'i');
+                        const updated = searchQuery.replace(regex, '').replace(/\s+/g, ' ').trim();
+                        setSearchQuery(updated);
+                        handleSearch(updated);
+                      }}
+                      className="ml-0.5 hover:text-white cursor-pointer"
+                      title="Remove site filter"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                {activeSearchSyntax.filetypeFilter && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[11px] font-mono">
+                    <span>filetype:<strong>{activeSearchSyntax.filetypeFilter}</strong></span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const regex = new RegExp(`\\b(?:filetype|ext):${activeSearchSyntax.filetypeFilter}\\b`, 'i');
+                        const updated = searchQuery.replace(regex, '').replace(/\s+/g, ' ').trim();
+                        setSearchQuery(updated);
+                        handleSearch(updated);
+                      }}
+                      className="ml-0.5 hover:text-white cursor-pointer"
+                      title="Remove filetype filter"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                {activeSearchSyntax.exactPhrases.map((phrase, idx) => (
+                  <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-mono">
+                    <span>&ldquo;{phrase}&rdquo;</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const regex = new RegExp(`"${phrase}"`, 'gi');
+                        const updated = searchQuery.replace(regex, '').replace(/\s+/g, ' ').trim();
+                        setSearchQuery(updated);
+                        handleSearch(updated);
+                      }}
+                      className="ml-0.5 hover:text-white cursor-pointer"
+                      title="Remove exact match phrase"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+
+                {activeSearchSyntax.excludedTerms.map((term, idx) => (
+                  <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[11px] font-mono">
+                    <span>-{term}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const regex = new RegExp(`(?:^|\\s)-${term}\\b`, 'gi');
+                        const updated = searchQuery.replace(regex, '').replace(/\s+/g, ' ').trim();
+                        setSearchQuery(updated);
+                        handleSearch(updated);
+                      }}
+                      className="ml-0.5 hover:text-white cursor-pointer"
+                      title="Remove exclusion term"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* Compact Recent Search Pills (hidden once results are showing) */}
             {searchHistory.length > 0 && searchResults.length === 0 && (
               <div className="flex flex-wrap items-center gap-2 px-2 text-xs -mt-1 select-none">
@@ -8366,96 +8474,6 @@ export default function App() {
                   }}
                   isLight={isLight}
                 />
-
-                {/* 2. SafeSearch Menu Toggle */}
-                <div className="relative inline-block text-left">
-                  <button
-                    id="safesearch-toggle-btn"
-                    type="button"
-                    onClick={() => setShowSafeSearchMenu(!showSafeSearchMenu)}
-                    title={`SafeSearch: currently ${safeSearchLevel.toUpperCase()}`}
-                    className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-medium border transition-all cursor-pointer active:scale-95 shrink-0 ${
-                      safeSearchLevel !== 'off'
-                        ? isLight
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100 shadow-sm'
-                          : 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/50 shadow-sm'
-                        : isLight
-                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                          : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white'
-                    }`}
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span className="capitalize">{safeSearchLevel}</span>
-                    <ChevronDown className="w-3 h-3 text-slate-400" />
-                  </button>
-
-                  <AnimatePresence>
-                    {showSafeSearchMenu && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 6, scale: 0.98 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 6, scale: 0.98 }}
-                        className={`absolute right-0 mt-2 w-52 rounded-2xl shadow-xl border overflow-hidden z-50 p-1 flex flex-col gap-0.5 ${
-                          isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#070e24] border-slate-800 text-slate-100'
-                        }`}
-                      >
-                        {(['strict', 'moderate', 'off'] as SafeSearchLevel[]).map((lvl) => (
-                          <button
-                            key={lvl}
-                            type="button"
-                            onClick={() => {
-                              setSafeSearchLevel(lvl);
-                              setStoredSafeSearch(lvl);
-                              setShowSafeSearchMenu(false);
-                              showToast(`SafeSearch set to ${lvl.toUpperCase()}`, 'info');
-                            }}
-                            className={`px-3 py-2 rounded-xl text-xs font-medium flex items-center justify-between cursor-pointer ${
-                              safeSearchLevel === lvl
-                                ? isLight ? 'bg-emerald-50 text-emerald-700 font-bold' : 'bg-emerald-950/60 text-emerald-300 font-bold'
-                                : isLight ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-900 text-slate-300'
-                            }`}
-                          >
-                            <span className="capitalize">{lvl}</span>
-                            {safeSearchLevel === lvl && <Check className="w-3.5 h-3.5 text-emerald-400" />}
-                          </button>
-                        ))}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                {/* 3. !Bangs Directory button */}
-                <button
-                  id="duck-bangs-btn"
-                  type="button"
-                  onClick={() => setShowBangsModal(true)}
-                  title="Explore DuckDuckGo !bangs shortcuts (e.g. !w, !gh, !yt)"
-                  className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer active:scale-95 ${
-                    isLight
-                      ? 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100 shadow-sm'
-                      : 'bg-purple-950/40 border-purple-800/80 text-purple-300 hover:bg-purple-900/60 shadow-sm'
-                  }`}
-                >
-                  <span className="text-[11px] font-mono font-extrabold text-purple-400 leading-none">!</span>
-                  <span>Bangs</span>
-                </button>
-
-                {/* 4. Clear All Trace button (DuckDuckGo Fire Button equivalent) */}
-                <button
-                  id="clear-all-trace-btn"
-                  type="button"
-                  onClick={() => setShowClearTraceModal(true)}
-                  title="Clear All Trace — Erase searches, history & reset session"
-                  className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer active:scale-95 ${
-                    isLight
-                      ? 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100 hover:border-orange-300 shadow-sm'
-                      : 'bg-orange-950/40 border-orange-800/80 text-orange-300 hover:bg-orange-900/60 hover:border-orange-600 shadow-sm'
-                  }`}
-                >
-                  <Flame className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                  <span className="hidden sm:inline">Clear All Trace</span>
-                  <span className="sm:hidden">Clear</span>
-                </button>
               </div>
             </div>
 
@@ -17423,6 +17441,101 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Section 3: DuckDuckGo !Bangs Shortcuts */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider font-mono">
+                      DuckDuckGo !Bangs Shortcuts
+                    </h4>
+                    <button
+                      id="duck-bangs-btn"
+                      type="button"
+                      onClick={() => {
+                        setShowShortcutsHelp(false);
+                        setShowBangsModal(true);
+                      }}
+                      title="Explore DuckDuckGo !bangs shortcuts (e.g. !w, !gh, !yt)"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer active:scale-95 bg-purple-950/50 border-purple-700/80 text-purple-200 hover:bg-purple-900/70 hover:border-purple-500 shadow-xs"
+                    >
+                      <span className="text-[11px] font-mono font-extrabold text-purple-400 leading-none">!</span>
+                      <span>Browse All Bangs</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl">
+                      <span className="text-xs text-slate-300 font-sans">Wikipedia Direct Search</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-purple-300 bg-purple-950/40 border border-purple-500/30 rounded shadow-sm">
+                        !w
+                      </kbd>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl">
+                      <span className="text-xs text-slate-300 font-sans">GitHub Repositories</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-purple-300 bg-purple-950/40 border border-purple-500/30 rounded shadow-sm">
+                        !gh
+                      </kbd>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl">
+                      <span className="text-xs text-slate-300 font-sans">YouTube Videos</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-purple-300 bg-purple-950/40 border border-purple-500/30 rounded shadow-sm">
+                        !yt
+                      </kbd>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl">
+                      <span className="text-xs text-slate-300 font-sans">Stack Overflow Code</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-purple-300 bg-purple-950/40 border border-purple-500/30 rounded shadow-sm">
+                        !so
+                      </kbd>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 4: DuckDuckGo Search Operators & Direct Jump */}
+                <div>
+                  <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-3 font-mono">
+                    DuckDuckGo Search Syntax & Operators
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl">
+                      <span className="text-xs text-slate-300 font-sans">Direct Jump (First Result)</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-amber-300 bg-amber-950/40 border border-amber-500/30 rounded shadow-sm">
+                        \query
+                      </kbd>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl">
+                      <span className="text-xs text-slate-300 font-sans">Domain / Website Filter</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-amber-300 bg-amber-950/40 border border-amber-500/30 rounded shadow-sm">
+                        site:domain.com
+                      </kbd>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl">
+                      <span className="text-xs text-slate-300 font-sans">File Format Filter</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-amber-300 bg-amber-950/40 border border-amber-500/30 rounded shadow-sm">
+                        filetype:pdf
+                      </kbd>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl">
+                      <span className="text-xs text-slate-300 font-sans">Exact Match Phrase</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-amber-300 bg-amber-950/40 border border-amber-500/30 rounded shadow-sm">
+                        &quot;exact phrase&quot;
+                      </kbd>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-[#040410]/50 border border-slate-800/40 p-2.5 rounded-xl sm:col-span-2">
+                      <span className="text-xs text-slate-300 font-sans">Term Exclusion (Negation)</span>
+                      <kbd className="px-2 py-0.5 text-xs font-mono font-extrabold text-amber-300 bg-amber-950/40 border border-amber-500/30 rounded shadow-sm">
+                        search term -unwanted
+                      </kbd>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
               {/* Confirm Bottom Action button */}
@@ -17795,6 +17908,12 @@ export default function App() {
         onToggleTheme={toggleTheme}
         sessionId={sessionId}
         onNotify={showToast}
+        safeSearchLevel={safeSearchLevel}
+        onSetSafeSearchLevel={(lvl) => {
+          setSafeSearchLevel(lvl);
+          setStoredSafeSearch(lvl);
+        }}
+        onOpenClearTrace={() => setShowClearTraceModal(true)}
       />
 
       {/* Mobile & Desktop Tag Filter Drawer / Bottom Sheet */}
@@ -17961,34 +18080,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Floating Animated Toast Stack */}
-      <div className="fixed bottom-6 left-6 z-50 flex flex-col gap-2.5 max-w-xs sm:max-w-sm pointer-events-none">
-        <AnimatePresence>
-          {toasts.map((toast) => (
-            <motion.div
-              key={toast.id}
-              initial={{ opacity: 0, x: -20, scale: 0.9 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: -25, scale: 0.85 }}
-              transition={{ duration: 0.2 }}
-              className={`pointer-events-auto px-4 py-3 rounded-2xl border flex items-center gap-3 shadow-[0_12px_45px_rgba(0,0,0,0.7)] backdrop-blur-md font-sans text-xs font-bold leading-tight ${
-                toast.type === 'error'
-                  ? 'border-red-500/30 bg-red-950/90 text-red-200'
-                  : 'border-emerald-500/30 bg-emerald-950/90 text-emerald-200'
-              }`}
-            >
-              {toast.type === 'error' ? (
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-              ) : (
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-              )}
-              <span>{toast.message}</span>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-
     </div>
   );
 }

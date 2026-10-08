@@ -21,7 +21,19 @@ import {
   CloudRain,
   MapPin,
   TrendingUp,
-  Share2
+  Share2,
+  Key,
+  QrCode,
+  FileCode,
+  Dices,
+  Coins,
+  FileText,
+  RefreshCw,
+  Sliders,
+  Download,
+  Bell,
+  BellRing,
+  ShieldCheck
 } from 'lucide-react';
 
 import {
@@ -53,6 +65,14 @@ import {
   fetchCityWeather,
   getWeatherConditionInfo
 } from '../utils/weatherService';
+
+import {
+  generateSecurePassword,
+  CHEATSHEETS,
+  CheatsheetData,
+  generateQrCodeSvg,
+  generateLoremIpsum
+} from '../utils/duckDuckGoUtilities';
 
 export interface InstantAnswerProps {
   query: string;
@@ -130,6 +150,34 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
 
   // 7. Color Picker State
   const [pickedColor, setPickedColor] = useState('#3b82f6');
+
+  // 8. Password Generator State
+  const [passwordLength, setPasswordLength] = useState<number>(16);
+  const [includeUpper, setIncludeUpper] = useState<boolean>(true);
+  const [includeLower, setIncludeLower] = useState<boolean>(true);
+  const [includeNums, setIncludeNums] = useState<boolean>(true);
+  const [includeSyms, setIncludeSyms] = useState<boolean>(true);
+  const [pwSeed, setPwSeed] = useState<number>(0);
+
+  // 9. QR Code Generator State
+  const [qrInput, setQrInput] = useState<string>('');
+
+  // 10. Developer Cheatsheet State
+  const [cheatsheetFilter, setCheatsheetFilter] = useState<string>('');
+
+  // 11. Countdown Timer State
+  const [timerSecondsLeft, setTimerSecondsLeft] = useState<number>(300);
+  const [timerTotalDuration, setTimerTotalDuration] = useState<number>(300);
+  const [timerRunning, setTimerRunning] = useState<boolean>(false);
+
+  // 12. Coin Flip & Dice Roller State
+  const [coinSide, setCoinSide] = useState<'HEADS' | 'TAILS'>('HEADS');
+  const [diceVal, setDiceVal] = useState<number>(6);
+  const [isFlippingRolling, setIsFlippingRolling] = useState(false);
+  const [flipStats, setFlipStats] = useState({ heads: 0, tails: 0 });
+
+  // 13. Lorem Ipsum Generator State
+  const [loremParas, setLoremParas] = useState<number>(3);
 
   // Clipboard copy handler
   const handleCopy = (text: string, key: string) => {
@@ -451,6 +499,163 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
     }
   }, [colorMatch]);
 
+  // --------------------------------------------------------------------------
+  // 9. Password Generator Check
+  // --------------------------------------------------------------------------
+  const passwordMatch = useMemo(() => {
+    const m = qClean.match(/^(?:password|generate password|pw|random password)(?:\s+(\d+))?$/i);
+    if (!m) return null;
+    const len = m[1] ? parseInt(m[1], 10) : passwordLength;
+    return { targetLength: Math.max(6, Math.min(64, len)) };
+  }, [qClean, passwordLength]);
+
+  const activePassword = useMemo(() => {
+    if (!passwordMatch) return null;
+    return generateSecurePassword({
+      length: passwordMatch.targetLength,
+      includeUppercase: includeUpper,
+      includeLowercase: includeLower,
+      includeNumbers: includeNums,
+      includeSymbols: includeSyms
+    });
+  }, [passwordMatch, includeUpper, includeLower, includeNums, includeSyms, pwSeed]);
+
+  // --------------------------------------------------------------------------
+  // 10. QR Code Generator Check
+  // --------------------------------------------------------------------------
+  const qrCodeMatch = useMemo(() => {
+    const m = debouncedQuery.match(/^(?:qr(?:\s*code)?)\s*(.*)$/i);
+    if (!m) return null;
+    return m[1].trim() || 'https://duckduckgo.com';
+  }, [debouncedQuery]);
+
+  useEffect(() => {
+    if (qrCodeMatch) setQrInput(qrCodeMatch);
+  }, [qrCodeMatch]);
+
+  // --------------------------------------------------------------------------
+  // 11. Developer Cheatsheet Check
+  // --------------------------------------------------------------------------
+  const cheatsheetMatch = useMemo(() => {
+    for (const key of Object.keys(CHEATSHEETS)) {
+      if (
+        (qClean.includes(key) && (qClean.includes('cheat') || qClean.includes('sheet') || qClean.includes('reference'))) ||
+        (qClean.startsWith('cheat') && qClean.includes(key))
+      ) {
+        return CHEATSHEETS[key];
+      }
+    }
+    return null;
+  }, [qClean]);
+
+  // --------------------------------------------------------------------------
+  // 12. Interactive Countdown Timer Check
+  // --------------------------------------------------------------------------
+  const countdownTimerMatch = useMemo(() => {
+    const m = qClean.match(/^(?:timer|countdown)(?:\s+(\d+)\s*(m(?:in(?:ute)?s?)?|s(?:ec(?:ond)?s?)?|h(?:(?:ou)?rs?)?))?$/i);
+    if (!m) return null;
+    const val = m[1] ? parseInt(m[1], 10) : 5;
+    const unit = m[2] ? m[2][0] : 'm';
+    const totalSec = unit === 'h' ? val * 3600 : unit === 's' ? val : val * 60;
+    return Math.max(5, Math.min(3600 * 24, totalSec));
+  }, [qClean]);
+
+  useEffect(() => {
+    if (countdownTimerMatch) {
+      setTimerTotalDuration(countdownTimerMatch);
+      setTimerSecondsLeft(countdownTimerMatch);
+      setTimerRunning(false);
+    }
+  }, [countdownTimerMatch]);
+
+  useEffect(() => {
+    let interval: any = null;
+    if (timerRunning && timerSecondsLeft > 0) {
+      interval = setInterval(() => {
+        setTimerSecondsLeft(prev => {
+          if (prev <= 1) {
+            setTimerRunning(false);
+            try {
+              const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+              osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.2);
+              gain.gain.setValueAtTime(0.3, ctx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start();
+              osc.stop(ctx.currentTime + 0.6);
+            } catch (_) {}
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [timerRunning, timerSecondsLeft]);
+
+  // --------------------------------------------------------------------------
+  // 13. Coin Flip & Dice Roller Check
+  // --------------------------------------------------------------------------
+  const coinDiceMatch = useMemo(() => {
+    if (/^(?:flip\s*a?\s*coin|coin\s*flip|coin\s*toss)$/i.test(qClean)) {
+      return { type: 'coin' as const };
+    }
+    const dMatch = qClean.match(/^(?:roll\s*a?\s*die|roll\s*dice|roll\s*d(\d+))$/i);
+    if (dMatch) {
+      const sides = dMatch[1] ? parseInt(dMatch[1], 10) : 6;
+      return { type: 'dice' as const, sides: Math.max(2, Math.min(100, sides)) };
+    }
+    return null;
+  }, [qClean]);
+
+  const handleFlipCoin = () => {
+    setIsFlippingRolling(true);
+    setTimeout(() => {
+      const isHeads = Math.random() > 0.5;
+      const res = isHeads ? 'HEADS' : 'TAILS';
+      setCoinSide(res);
+      setFlipStats(prev => ({
+        heads: prev.heads + (isHeads ? 1 : 0),
+        tails: prev.tails + (!isHeads ? 1 : 0)
+      }));
+      setIsFlippingRolling(false);
+    }, 320);
+  };
+
+  const handleRollDice = (sides: number) => {
+    setIsFlippingRolling(true);
+    setTimeout(() => {
+      const res = Math.floor(Math.random() * sides) + 1;
+      setDiceVal(res);
+      setIsFlippingRolling(false);
+    }, 320);
+  };
+
+  // --------------------------------------------------------------------------
+  // 14. Lorem Ipsum Generator Check
+  // --------------------------------------------------------------------------
+  const loremMatch = useMemo(() => {
+    const m = qClean.match(/^(?:lorem\s*ipsum|dummy\s*text)(?:\s+(\d+))?$/i);
+    if (!m) return null;
+    return m[1] ? Math.max(1, Math.min(10, parseInt(m[1], 10))) : 3;
+  }, [qClean]);
+
+  useEffect(() => {
+    if (loremMatch) setLoremParas(loremMatch);
+  }, [loremMatch]);
+
+  const loremText = useMemo(() => {
+    if (!loremMatch) return '';
+    return generateLoremIpsum(loremParas);
+  }, [loremMatch, loremParas]);
+
   // Immediate dictionary readiness check - displays instantaneously when definition is available
   const isDictReady = Boolean(
     dictData && rawDictWord && dictData.word.toLowerCase() === rawDictWord.toLowerCase()
@@ -467,7 +672,13 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
       weatherData ||
       timeCityMatch ||
       isStopwatchMatch ||
-      colorMatch
+      colorMatch ||
+      passwordMatch ||
+      qrCodeMatch ||
+      cheatsheetMatch ||
+      countdownTimerMatch ||
+      coinDiceMatch ||
+      loremMatch
     ))
   );
 
@@ -1190,6 +1401,432 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
                 <RotateCcw className="w-4 h-4" />
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 9. PASSWORD GENERATOR ZERO-CLICK ANSWER                              */}
+      {/* ==================================================================== */}
+      {passwordMatch && activePassword && (
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              <Key className="w-3.5 h-3.5 text-blue-400" />
+              <span>Password Generator</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                activePassword.strength === 'very_strong'
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                  : activePassword.strength === 'strong'
+                  ? 'bg-blue-500/15 border-blue-500/30 text-blue-400'
+                  : 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+              }`}>
+                {activePassword.strength.replace('_', ' ').toUpperCase()} • {activePassword.entropyBits} bits
+              </span>
+            </div>
+          </div>
+
+          <div className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${
+            isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+          }`}>
+            <div className="font-mono text-base sm:text-lg font-bold tracking-wider select-all break-all text-slate-100">
+              {activePassword.password}
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setPwSeed(prev => prev + 1)}
+                type="button"
+                className="p-2 rounded-lg hover:bg-slate-800/80 text-slate-400 hover:text-slate-200 cursor-pointer transition-all active:scale-95"
+                title="Regenerate Password"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => handleCopy(activePassword.password, 'password')}
+                type="button"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs cursor-pointer shadow-sm active:scale-95 transition-all"
+              >
+                {copiedKey === 'password' ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs pt-1 border-t border-slate-800/60 flex-wrap">
+            <div className="flex items-center gap-3">
+              <span className="text-slate-400 font-mono">Length: <strong className="text-slate-200">{passwordLength}</strong></span>
+              <input
+                type="range"
+                min="8"
+                max="48"
+                value={passwordLength}
+                onChange={(e) => setPasswordLength(parseInt(e.target.value, 10))}
+                className="w-28 sm:w-36 accent-blue-500 cursor-pointer"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400 flex-wrap">
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeUpper}
+                  onChange={(e) => setIncludeUpper(e.target.checked)}
+                  className="rounded accent-blue-500"
+                />
+                <span>A-Z</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeNums}
+                  onChange={(e) => setIncludeNums(e.target.checked)}
+                  className="rounded accent-blue-500"
+                />
+                <span>0-9</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeSyms}
+                  onChange={(e) => setIncludeSyms(e.target.checked)}
+                  className="rounded accent-blue-500"
+                />
+                <span>!@#$</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 10. QR CODE GENERATOR ZERO-CLICK ANSWER                              */}
+      {/* ==================================================================== */}
+      {qrCodeMatch && (
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              <QrCode className="w-3.5 h-3.5 text-blue-400" />
+              <span>QR Code Generator</span>
+            </span>
+            <span className="text-[10px] font-mono text-slate-500">Vector SVG Format</span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-6">
+            <div
+              className="p-3 bg-white rounded-2xl shadow-md border border-slate-300 text-black flex items-center justify-center shrink-0"
+              dangerouslySetInnerHTML={{ __html: generateQrCodeSvg(qrInput || qrCodeMatch, 160) }}
+            />
+
+            <div className="flex-1 w-full flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-bold text-slate-400 mb-1 block">Content / Target URL</label>
+                <input
+                  type="text"
+                  value={qrInput}
+                  onChange={(e) => setQrInput(e.target.value)}
+                  placeholder="Enter text or URL..."
+                  className={`w-full px-3 py-2 rounded-xl text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-slate-950 border-slate-800 text-slate-200'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const svgData = generateQrCodeSvg(qrInput || qrCodeMatch, 256);
+                    handleCopy(svgData, 'qr-svg');
+                  }}
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs cursor-pointer shadow-sm transition-all"
+                >
+                  {copiedKey === 'qr-svg' ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>SVG Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy SVG Code</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => {
+                    const svgData = generateQrCodeSvg(qrInput || qrCodeMatch, 512);
+                    const blob = new Blob([svgData], { type: 'image/svg+xml' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'qrcode.svg';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download SVG</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 11. DEVELOPER CHEATSHEET ZERO-CLICK ANSWER                           */}
+      {/* ==================================================================== */}
+      {cheatsheetMatch && (
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-purple-400 flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              <FileCode className="w-3.5 h-3.5 text-purple-400" />
+              <span>{cheatsheetMatch.title}</span>
+            </span>
+            <input
+              type="text"
+              value={cheatsheetFilter}
+              onChange={(e) => setCheatsheetFilter(e.target.value)}
+              placeholder="Filter commands..."
+              className={`px-2.5 py-1 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-purple-500 w-36 sm:w-48 ${
+                isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-slate-950 border-slate-800 text-slate-200'
+              }`}
+            />
+          </div>
+
+          <p className="text-xs text-slate-400">{cheatsheetMatch.description}</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-96 overflow-y-auto pr-1">
+            {cheatsheetMatch.categories.map((cat, cIdx) => {
+              const filteredItems = cat.items.filter(
+                it => !cheatsheetFilter || 
+                it.command.toLowerCase().includes(cheatsheetFilter.toLowerCase()) || 
+                it.description.toLowerCase().includes(cheatsheetFilter.toLowerCase())
+              );
+              if (filteredItems.length === 0) return null;
+              return (
+                <div key={cIdx} className={`p-3.5 rounded-xl border flex flex-col gap-2.5 ${
+                  isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950/40 border-slate-800/80'
+                }`}>
+                  <h4 className="text-xs font-bold text-purple-400 font-mono tracking-wide">{cat.category}</h4>
+                  <div className="flex flex-col gap-2">
+                    {filteredItems.map((item, iIdx) => (
+                      <div key={iIdx} className="flex items-center justify-between gap-2 text-xs group">
+                        <div className="min-w-0">
+                          <code className="text-purple-300 font-mono font-bold block truncate">{item.command}</code>
+                          <span className="text-[11px] text-slate-400 block truncate">{item.description}</span>
+                        </div>
+                        <button
+                          onClick={() => handleCopy(item.command, `cheat-${cIdx}-${iIdx}`)}
+                          type="button"
+                          className="p-1 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-800/80 cursor-pointer shrink-0 transition-colors"
+                          title="Copy command"
+                        >
+                          {copiedKey === `cheat-${cIdx}-${iIdx}` ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 12. COUNTDOWN TIMER ZERO-CLICK ANSWER                                */}
+      {/* ==================================================================== */}
+      {countdownTimerMatch && (
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              <Bell className="w-3.5 h-3.5 text-blue-400" />
+              <span>Countdown Timer</span>
+            </span>
+            <span className="text-xs font-mono text-slate-500">
+              {timerRunning ? 'Running' : timerSecondsLeft === 0 ? 'Finished!' : 'Paused'}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="flex items-baseline gap-2 font-mono">
+              <span className={`text-4xl sm:text-5xl font-black ${
+                timerSecondsLeft === 0 ? 'text-red-400 animate-pulse' : 'text-blue-400'
+              }`}>
+                {`${Math.floor(timerSecondsLeft / 60).toString().padStart(2, '0')}:${(timerSecondsLeft % 60).toString().padStart(2, '0')}`}
+              </span>
+              <span className="text-xs text-slate-500 uppercase tracking-widest font-sans font-bold">
+                of {Math.floor(timerTotalDuration / 60)}m
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setTimerRunning(!timerRunning)}
+                type="button"
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all active:scale-95 ${
+                  timerRunning
+                    ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                    : 'bg-blue-600 hover:bg-blue-500 text-white'
+                }`}
+              >
+                {timerRunning ? (
+                  <>
+                    <Pause className="w-4 h-4" />
+                    <span>Pause</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" />
+                    <span>{timerSecondsLeft === 0 ? 'Restart' : 'Start'}</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setTimerRunning(false);
+                  setTimerSecondsLeft(timerTotalDuration);
+                }}
+                type="button"
+                className="p-2.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+                title="Reset timer"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 13. COIN FLIP & DICE ROLLER ZERO-CLICK ANSWER                        */}
+      {/* ==================================================================== */}
+      {coinDiceMatch && (
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              {coinDiceMatch.type === 'coin' ? (
+                <>
+                  <Coins className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Coin Flipper</span>
+                </>
+              ) : (
+                <>
+                  <Dices className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Dice Roller (d{coinDiceMatch.sides})</span>
+                </>
+              )}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              {coinDiceMatch.type === 'coin' ? (
+                <div className={`w-16 h-16 rounded-full border-2 border-amber-400 bg-gradient-to-tr from-amber-600 to-yellow-400 text-white font-extrabold text-xs flex items-center justify-center shadow-lg transition-transform ${
+                  isFlippingRolling ? 'animate-spin' : ''
+                }`}>
+                  {coinSide}
+                </div>
+              ) : (
+                <div className={`w-16 h-16 rounded-2xl border-2 border-emerald-400 bg-gradient-to-tr from-emerald-700 to-teal-500 text-white font-black text-2xl flex items-center justify-center shadow-lg font-mono transition-transform ${
+                  isFlippingRolling ? 'animate-bounce' : ''
+                }`}>
+                  {diceVal}
+                </div>
+              )}
+
+              <div>
+                <h4 className="text-base font-bold font-sans text-slate-100">
+                  {coinDiceMatch.type === 'coin' ? `Result: ${coinSide}` : `Rolled: ${diceVal}`}
+                </h4>
+                {coinDiceMatch.type === 'coin' && (
+                  <p className="text-xs text-slate-400 font-mono">
+                    Heads: {flipStats.heads} • Tails: {flipStats.tails}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                if (coinDiceMatch.type === 'coin') handleFlipCoin();
+                else handleRollDice(coinDiceMatch.sides);
+              }}
+              disabled={isFlippingRolling}
+              type="button"
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs cursor-pointer shadow-md active:scale-95 transition-all disabled:opacity-50"
+            >
+              {coinDiceMatch.type === 'coin' ? 'Flip Again' : 'Roll Again'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 14. LOREM IPSUM ZERO-CLICK ANSWER                                    */}
+      {/* ==================================================================== */}
+      {loremMatch && (
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              <FileText className="w-3.5 h-3.5 text-blue-400" />
+              <span>Lorem Ipsum Generator</span>
+            </span>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 font-mono">Paragraphs:</span>
+              {[1, 2, 3, 5].map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setLoremParas(p)}
+                  className={`px-2 py-0.5 rounded text-xs font-mono font-bold cursor-pointer ${
+                    loremParas === p
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+
+              <button
+                onClick={() => handleCopy(loremText, 'lorem')}
+                type="button"
+                className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold cursor-pointer ml-1"
+              >
+                {copiedKey === 'lorem' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedKey === 'lorem' ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className={`p-4 rounded-xl border text-xs leading-relaxed max-h-56 overflow-y-auto whitespace-pre-line font-serif ${
+            isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-950/60 border-slate-800 text-slate-300'
+          }`}>
+            {loremText}
           </div>
         </div>
       )}
