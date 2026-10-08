@@ -1797,8 +1797,66 @@ async function startServer() {
     res.json({ status: 'indexed', image: req.body });
   });
 
-  app.get('/api/suggest', (_req: Request, res: Response) => {
-    res.json({ suggestions: [] });
+  app.get('/api/suggest', async (req: Request, res: Response) => {
+    const q = String(req.query.q || '').trim();
+    const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 8));
+    if (!q) {
+      res.json({ suggestions: [] });
+      return;
+    }
+
+    const lowerQ = q.toLowerCase();
+    const seen = new Set<string>([lowerQ]);
+    const suggestions: string[] = [];
+    const push = (value: unknown) => {
+      const clean = String(value ?? '').trim();
+      const key = clean.toLowerCase();
+      if (clean && !seen.has(key)) {
+        seen.add(key);
+        suggestions.push(clean);
+      }
+    };
+
+    // Web-wide query completions first — DuckDuckGo's autocomplete endpoint,
+    // then Wikipedia OpenSearch article titles — then local catalog matches.
+    await Promise.allSettled([
+      (async () => {
+        const acRes = await fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(q)}&type=list`, {
+          headers: { 'User-Agent': 'IsaacSearchEngine/2.0', Accept: 'application/json' },
+          signal: AbortSignal.timeout(2500)
+        });
+        if (!acRes.ok) return;
+        const data: any = await acRes.json();
+        (Array.isArray(data) ? data : []).forEach((item: any) =>
+          push(typeof item === 'string' ? item : item?.phrase)
+        );
+      })(),
+      (async () => {
+        const wikiRes = await fetch(
+          `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(q)}&limit=6&namespace=0&format=json&origin=*`,
+          { headers: { 'User-Agent': 'IsaacSearchEngine/2.0' }, signal: AbortSignal.timeout(2500) }
+        );
+        if (!wikiRes.ok) return;
+        const data: any = await wikiRes.json();
+        (Array.isArray(data?.[1]) ? data[1] : []).forEach((t: any) => push(t));
+      })()
+    ]);
+
+    // Local catalog matches (titles, keywords, tags containing the query),
+    // shortest first so tight keyword hits outrank long titles.
+    const localMatches: string[] = [];
+    for (const page of serverIndexedPages) {
+      const fields = [page.title, ...(page.keywords || []), ...(page.tags || [])];
+      for (const field of fields) {
+        const clean = String(field || '').trim();
+        if (clean && clean.toLowerCase().includes(lowerQ)) {
+          localMatches.push(clean);
+        }
+      }
+    }
+    localMatches.sort((a, b) => a.length - b.length).forEach(push);
+
+    res.json({ suggestions: suggestions.slice(0, limit) });
   });
 
   app.post('/api/suggest-tags', (req: Request, res: Response) => {

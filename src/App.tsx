@@ -65,6 +65,11 @@ import { fetchClientSideImageResults } from './utils/clientImageFallback';
 // Dynamic API base: resolves to deployed Cloud Run server URL in mobile/Capacitor, or relative /api in browser
 const API_BASE = apiUrl('/api');
 
+// Result list paging: show a long first page (Google-style) and reveal large
+// batches on Show More, rather than true infinite scroll.
+const INITIAL_VISIBLE_RESULTS = 20;
+const SHOW_MORE_STEP = 10;
+
 // Interfaces
 interface SearchCollection {
   id: string;
@@ -104,7 +109,7 @@ interface PageItem {
 
 interface WhooshKeywordSuggestion {
   keyword: string;
-  type: 'whoosh_term' | 'index_keyword' | 'page_title' | 'tag' | 'history';
+  type: 'whoosh_term' | 'index_keyword' | 'page_title' | 'tag' | 'history' | 'web';
   label: string;
   sourceTitle?: string;
   docCount?: number;
@@ -1258,7 +1263,7 @@ export default function App() {
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const [searchResults, setSearchResults] = useState<PageItem[]>(() => [...DEFAULT_PAGES].sort((a, b) => (b.likes || 0) - (a.likes || 0)));
   const [currentPage, setCurrentPage] = useState(1);
-  const [visibleResultsCount, setVisibleResultsCount] = useState<number>(6);
+  const [visibleResultsCount, setVisibleResultsCount] = useState<number>(INITIAL_VISIBLE_RESULTS);
   const [isLoadingMoreResults, setIsLoadingMoreResults] = useState<boolean>(false);
   const [imagePage, setImagePage] = useState<number>(1);
   const [visibleImagesCount, setVisibleImagesCount] = useState<number>(8);
@@ -1787,6 +1792,7 @@ export default function App() {
   // Search Mode (All, Images, Videos, News - DuckDuckGo style) & Image results states
   const [searchMode, setSearchMode] = useState<'all' | 'images' | 'videos' | 'news'>('all');
   const [imageResults, setImageResults] = useState<ImageItem[]>([]);
+  const [relatedSearches, setRelatedSearches] = useState<string[]>([]);
   const [isImagesLoading, setIsImagesLoading] = useState(false);
   const [selectedColorFilter, setSelectedColorFilter] = useState<string | null>(null);
 
@@ -3682,6 +3688,44 @@ export default function App() {
     }
   };
 
+  // "Searches related to X" — alternative phrasings of the query sourced from
+  // the suggest API (web completions + index terms), or Wikipedia OpenSearch
+  // directly when the backend is unreachable.
+  const fetchRelatedSearches = async (queryStr: string) => {
+    try {
+      let terms: string[] = [];
+      try {
+        const res = await fetch(`${API_BASE}/suggest?q=${encodeURIComponent(queryStr)}&limit=10`);
+        const contentType = res.headers.get('content-type');
+        if (res.ok && contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (Array.isArray(data.suggestions)) terms = data.suggestions;
+        }
+      } catch (_) {}
+      if (terms.length === 0) {
+        try {
+          const res = await fetch(
+            `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(queryStr)}&limit=8&namespace=0&format=json&origin=*`,
+            { signal: AbortSignal.timeout(2500) }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data?.[1])) terms = data[1];
+          }
+        } catch (_) {}
+      }
+      const lower = queryStr.trim().toLowerCase();
+      setRelatedSearches(
+        terms
+          .map(t => String(t || '').trim())
+          .filter(t => t && t.toLowerCase() !== lower)
+          .slice(0, 6)
+      );
+    } catch (_) {
+      setRelatedSearches([]);
+    }
+  };
+
   const handleShowMoreImages = async () => {
     const currentFilteredImages = selectedColorFilter
       ? imageResults.filter(img => img.dominant_color === selectedColorFilter)
@@ -3786,10 +3830,11 @@ export default function App() {
     if (!queryStr.trim()) return;
     setIsSearching(true);
     setCurrentPage(1);
-    setVisibleResultsCount(6);
+    setVisibleResultsCount(INITIAL_VISIBLE_RESULTS);
     setShowSuggestions(false);
     setSearchWithinQuery('');
     fetchImages(queryStr);
+    fetchRelatedSearches(queryStr);
     
     // Save to history
     saveToHistory(queryStr);
@@ -4074,7 +4119,7 @@ export default function App() {
   };
 
   const handleShowMoreResults = async () => {
-    const STEP = 6;
+    const STEP = SHOW_MORE_STEP;
     // If we already have enough buffered results in filteredSearchResults, reveal the next batch immediately
     if (visibleResultsCount + STEP <= filteredSearchResults.length) {
       const nextCount = visibleResultsCount + STEP;
@@ -4778,10 +4823,12 @@ export default function App() {
         const lowerQuery = query.toLowerCase();
         const suggestionsMap = new Map<string, WhooshKeywordSuggestion>();
 
-        // 1. Fetch suggestions from Whoosh backend API endpoint
+        // 1. Fetch suggestions from the backend API (web completions + index terms)
+        let backendSuggestions = 0;
         try {
           const res = await fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}&limit=8`);
-          if (res.ok) {
+          const contentType = res.headers.get('content-type');
+          if (res.ok && contentType && contentType.includes('application/json')) {
             const data = await res.json();
             if (Array.isArray(data.suggestions)) {
               data.suggestions.forEach((term: string) => {
@@ -4791,15 +4838,42 @@ export default function App() {
                   suggestionsMap.set(key, {
                     keyword: clean,
                     type: 'whoosh_term',
-                    label: 'Whoosh Index',
+                    label: 'Suggestion',
                     docCount: 1
                   });
+                  backendSuggestions++;
                 }
               });
             }
           }
         } catch (_) {
           // Backend offline or unreachable fallback
+        }
+
+        // 1b. Backend unreachable (static deploy): ask Wikipedia's OpenSearch
+        // API directly — it is CORS-enabled and needs no key.
+        if (backendSuggestions === 0) {
+          try {
+            const res = await fetch(
+              `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=6&namespace=0&format=json&origin=*`,
+              { signal: AbortSignal.timeout(2500) }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              const titles: unknown[] = Array.isArray(data?.[1]) ? data[1] : [];
+              titles.forEach((t) => {
+                const clean = String(t ?? '').trim();
+                const key = clean.toLowerCase();
+                if (clean && !suggestionsMap.has(key)) {
+                  suggestionsMap.set(key, {
+                    keyword: clean,
+                    type: 'web',
+                    label: 'Web'
+                  });
+                }
+              });
+            }
+          } catch (_) {}
         }
 
         // 2. Extract Whoosh Index keywords, tags, phrases and titles from indexed pagesList & DEFAULT_PAGES
@@ -4894,6 +4968,7 @@ export default function App() {
           // Prefer whoosh/keywords over long titles
           const typePriority: Record<string, number> = {
             whoosh_term: 1,
+            web: 1,
             index_keyword: 2,
             tag: 3,
             history: 4,
@@ -8927,13 +9002,13 @@ export default function App() {
                         </div>
 
                         <div className="flex items-center gap-2.5 shrink-0">
-                          {visibleResultsCount > 6 && (
+                          {visibleResultsCount > INITIAL_VISIBLE_RESULTS && (
                             <button
                               type="button"
                               id="show-less-results-btn"
                               onClick={() => {
-                                setVisibleResultsCount(6);
-                                showToast('Collapsed back to top 6 search results', 'info');
+                                setVisibleResultsCount(INITIAL_VISIBLE_RESULTS);
+                                showToast(`Collapsed back to top ${INITIAL_VISIBLE_RESULTS} search results`, 'info');
                               }}
                               className="px-3.5 py-2.5 rounded-xl border border-slate-800 bg-[#030712]/80 hover:bg-slate-900 text-slate-400 hover:text-slate-200 text-xs font-bold font-sans transition-all cursor-pointer active:scale-95"
                             >
@@ -8959,13 +9034,39 @@ export default function App() {
                                 <span>Show More</span>
                                 {visibleResultsCount < filteredSearchResults.length && (
                                   <span className="px-1.5 py-0.5 rounded-full bg-white/20 text-[10px] font-mono">
-                                    +{Math.min(6, filteredSearchResults.length - visibleResultsCount)}
+                                    +{Math.min(SHOW_MORE_STEP, filteredSearchResults.length - visibleResultsCount)}
                                   </span>
                                 )}
                               </>
                             )}
                           </button>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Related Searches */}
+                  {relatedSearches.length > 0 && (
+                    <div className="pb-4 flex flex-col gap-2.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans px-1">
+                        Searches related to {searchQuery}
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {relatedSearches.map((term) => (
+                          <button
+                            key={term}
+                            type="button"
+                            onClick={() => {
+                              setSearchQuery(term);
+                              handleSearch(term);
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-[#070e24]/80 hover:bg-slate-900 border border-slate-800/90 hover:border-slate-700 text-slate-300 hover:text-white text-xs font-bold font-sans transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
+                            title={`Search for "${term}"`}
+                          >
+                            <Search className="w-3 h-3 text-blue-400 shrink-0" />
+                            {term}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
