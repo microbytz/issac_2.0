@@ -55,6 +55,7 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
   isLight = false,
   onNotify
 }) => {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   // Navigation tabs within modal
   const [activeTab, setActiveTab] = useState<'all' | 'merge' | 'rename' | 'tools'>('all');
 
@@ -352,7 +353,6 @@ export const GlobalTagManagerModal: React.FC<GlobalTagManagerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Manage tags" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 font-sans">
       {/* Backdrop */}

@@ -456,6 +456,175 @@ export const OFFLINE_DICTIONARY: Record<string, DictionaryEntry> = {
     example: 'Go and Elixir are renowned for handling massive network concurrency with lightweight threads.',
     synonyms: ['simultaneity', 'coexistence', 'parallelism', 'multitasking'],
     antonyms: ['serialism', 'sequence']
+  },
+  galaxy: {
+    word: 'galaxy',
+    phonetic: '/ˈɡæl.ək.si/',
+    partOfSpeech: 'noun',
+    definition: 'A system of millions or billions of stars, together with gas and dust, held together by gravitational attraction.',
+    definitions: [
+      'A gravitationally bound system of stars, stellar remnants, interstellar gas, dust, and dark matter.',
+      'An immense or dazzling assembly of brilliant people or remarkable things.'
+    ],
+    example: 'The James Webb Space Telescope captures galaxies that formed shortly after the Big Bang.',
+    synonyms: ['star system', 'cosmos', 'universe', 'constellation', 'cluster'],
+    antonyms: []
+  },
+  microchip: {
+    word: 'microchip',
+    phonetic: '/ˈmaɪ.kroʊ.tʃɪp/',
+    partOfSpeech: 'noun',
+    definition: 'A tiny wafer of semiconducting material used to make an integrated circuit containing microscopic electronic components.',
+    definitions: [
+      'A tiny wafer of semiconducting material used to make an integrated circuit.',
+      'A miniature electronic device used for computing, storage, or wireless tagging.'
+    ],
+    example: 'Advanced microchips with nanometer architecture power modern artificial intelligence models.',
+    synonyms: ['integrated circuit', 'silicon chip', 'processor', 'semiconductor'],
+    antonyms: []
+  },
+  architecture: {
+    word: 'architecture',
+    phonetic: '/ˈɑːr.kɪ.tɛk.tʃər/',
+    partOfSpeech: 'noun',
+    definition: 'The art or practice of designing and constructing buildings, structures, or complex software systems.',
+    definitions: [
+      'The art and science of designing buildings and civil structures.',
+      'The conceptual structure and overall logical organization of a computer system or software network.'
+    ],
+    example: 'The city skyline features a blend of modern neoclassical and cyberpunk architecture.',
+    synonyms: ['structural design', 'construction', 'framework', 'engineering', 'composition'],
+    antonyms: []
+  },
+  robotics: {
+    word: 'robotics',
+    phonetic: '/roʊˈbɑː.tɪks/',
+    partOfSpeech: 'noun',
+    definition: 'The branch of technology and science that deals with the design, construction, operation, and application of robots.',
+    definitions: [
+      'The interdisciplinary engineering branch focused on autonomous and semi-autonomous robots.',
+      'The application of automated mechanical agents in manufacturing, healthcare, and space exploration.'
+    ],
+    example: 'Breakthroughs in robotics and neural control enable dexterous bionic prosthetics.',
+    synonyms: ['automation', 'cybernetics', 'artificial intelligence', 'mechanization'],
+    antonyms: []
+  },
+  camera: {
+    word: 'camera',
+    phonetic: '/ˈkæm.rə/',
+    partOfSpeech: 'noun',
+    definition: 'An optical instrument used for recording visual images, photographs, film, or video signals.',
+    definitions: [
+      'A device for recording visual images in the form of photographs, film, or digital sensor data.',
+      'In 3D graphics, a mathematical viewpoint from which a scene is rendered.'
+    ],
+    example: 'The high-resolution camera captured intricate details of the night sky with low sensor noise.',
+    synonyms: ['photographic device', 'sensor', 'lens', 'camcorder', 'viewfinder'],
+    antonyms: []
+  },
+  telescope: {
+    word: 'telescope',
+    phonetic: '/ˈtɛl.ɪ.skoʊp/',
+    partOfSpeech: 'noun',
+    definition: 'An optical instrument designed to make distant objects appear nearer, containing an arrangement of lenses or curved mirrors.',
+    definitions: [
+      'An instrument designed to collect and magnify electromagnetic radiation from celestial bodies.',
+      'To slide or cause to slide within each other in sections, like concentric tubes.'
+    ],
+    example: 'Space telescopes orbiting outside the Earth’s atmosphere provide crystal-clear cosmic views.',
+    synonyms: ['spyglass', 'optical instrument', 'magnifier', 'refractor', 'reflector'],
+    antonyms: []
+  },
+  circuit: {
+    word: 'circuit',
+    phonetic: '/ˈsɜːr.kɪt/',
+    partOfSpeech: 'noun',
+    definition: 'A roughly circular line, route, or movement that starts and finishes at the same place; an electrical loop or network.',
+    definitions: [
+      'A complete closed loop or pathway through which an electric current flows.',
+      'A regular journey around a particular territory for official duties or sports competition.'
+    ],
+    example: 'Printed circuit boards route high-speed signals between memory and processor components.',
+    synonyms: ['network', 'loop', 'pathway', 'wiring', 'channel'],
+    antonyms: []
+  },
+  semiconductor: {
+    word: 'semiconductor',
+    phonetic: '/ˌsɛm.i.kənˈdʌk.tər/',
+    partOfSpeech: 'noun',
+    definition: 'A solid substance that has a conductivity between that of an insulator and that of most metals, essential in microelectronics.',
+    definitions: [
+      'A solid material such as silicon whose electrical conductivity can be controlled by doping or electric fields.',
+      'Components made of semiconductor materials, such as diodes and transistors.'
+    ],
+    example: 'Silicon remains the foundational semiconductor enabling the global digital revolution.',
+    synonyms: ['silicon', 'transistor', 'solid-state device', 'chip'],
+    antonyms: []
+  },
+  optics: {
+    word: 'optics',
+    phonetic: '/ˈɑːp.tɪks/',
+    partOfSpeech: 'noun',
+    definition: 'The scientific study of the behavior and properties of light, including its interactions with matter and optical instruments.',
+    definitions: [
+      'The branch of physics that studies the behavior and properties of light.',
+      'The optical elements or lenses of an instrument collectively.'
+    ],
+    example: 'Precision glass optics ensure zero chromatic aberration in astronomical imaging.',
+    synonyms: ['photonics', 'optical physics', 'lens system'],
+    antonyms: []
+  },
+  lens: {
+    word: 'lens',
+    phonetic: '/lɛnz/',
+    partOfSpeech: 'noun',
+    definition: 'A transparent optical device with curved surfaces that refracts light to converge or diverge beam paths and form images.',
+    definitions: [
+      'A piece of glass or clear substance with curved sides for concentrating or dispersing light rays.',
+      'The transparent structure behind the iris in the eye that focuses light on the retina.'
+    ],
+    example: 'A wide-aperture lens creates beautiful depth of field with creamy bokeh backgrounds.',
+    synonyms: ['optic', 'eyepiece', 'objective', 'magnifier'],
+    antonyms: []
+  },
+  image: {
+    word: 'image',
+    phonetic: '/ˈɪm.ɪdʒ/',
+    partOfSpeech: 'noun',
+    definition: 'A representation of the external form of a person or thing in art, photography, or digital pixel matrices.',
+    definitions: [
+      'A representation of the external form of a person or thing in art or photography.',
+      'An optical appearance produced by reflection from a mirror, refraction through a lens, or on a display screen.'
+    ],
+    example: 'The digital image contains millions of pixels encoding color and luminance across the visual spectrum.',
+    synonyms: ['picture', 'photograph', 'likeness', 'representation', 'visual'],
+    antonyms: []
+  },
+  universe: {
+    word: 'universe',
+    phonetic: '/ˈjuː.nɪ.vɜːrs/',
+    partOfSpeech: 'noun',
+    definition: 'All existing matter, space, and energy considered as a whole; the cosmos.',
+    definitions: [
+      'All existing space and matter considered as a whole; the cosmos.',
+      'A particular sphere of activity, experience, or knowledge.'
+    ],
+    example: 'Cosmologists observe that the universe continues to expand at an accelerating rate.',
+    synonyms: ['cosmos', 'creation', 'macrocosm', 'space', 'totality'],
+    antonyms: []
+  },
+  skyscraper: {
+    word: 'skyscraper',
+    phonetic: '/ˈskaɪˌskreɪ.pər/',
+    partOfSpeech: 'noun',
+    definition: 'A very tall building of many stories, typically exceeding 150 meters (492 ft) in height.',
+    definitions: [
+      'A very tall continuously habitable building with multiple floors.',
+      'A prominent high-rise structure defining a modern urban metropolis skyline.'
+    ],
+    example: 'The iconic skyscraper features tuned mass dampers to counteract hurricane-force winds.',
+    synonyms: ['high-rise', 'tower', 'edifice', 'monolith'],
+    antonyms: []
   }
 };
 
@@ -478,12 +647,40 @@ export function getImmediateDictionaryEntry(word: string): DictionaryEntry | nul
 }
 
 /**
+ * Extracts candidate words suitable for dictionary lookup from a visual search query or filename
+ */
+export function extractVisualCandidateWords(rawQuery: string): string[] {
+  const clean = (rawQuery || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ');
+  const tokens = clean
+    .split(/\s+/)
+    .filter(t => t.length >= 3 && !/^(?:visual|search|similar|image|photo|the|and|for|with|about|what|jpg|png|webp|svg)$/i.test(t));
+  
+  // Return unique candidate words, prioritizing those with immediate dictionary definitions
+  const unique = Array.from(new Set(tokens));
+  unique.sort((a, b) => {
+    const aInDict = OFFLINE_DICTIONARY[a] ? 1 : 0;
+    const bInDict = OFFLINE_DICTIONARY[b] ? 1 : 0;
+    return bInDict - aInDict;
+  });
+  return unique.slice(0, 5);
+}
+
+/**
  * Extracts a target dictionary word from a wide range of user search phrases.
  * Returns null if the user has not finished writing or typed an incomplete prefix.
+ * Supports visual search mode where candidate keywords from image context are recognized.
  */
-export function extractDictionaryQuery(rawQuery: string): string | null {
-  // If the query ends with space, the user is still actively writing (e.g. "define ", "meaning of ")
-  if (rawQuery.endsWith(' ')) {
+export function extractDictionaryQuery(rawQuery: string, isVisualSearch: boolean = false): string | null {
+  if (!rawQuery) {
+    if (isVisualSearch) return 'image';
+    return null;
+  }
+
+  // If the query ends with space and NOT visual search, user is actively typing
+  if (!isVisualSearch && rawQuery.endsWith(' ')) {
     return null;
   }
 
@@ -499,10 +696,10 @@ export function extractDictionaryQuery(rawQuery: string): string | null {
   }
 
   const isValidTargetWord = (w: string): boolean => {
-    const trimmed = w.trim();
+    const trimmed = w.trim().toLowerCase();
     // Must be at least 2 characters (e.g. "ox", "ai", "pi") and not dangling stop words
     if (trimmed.length < 2) return false;
-    if (/^(?:a|an|the|of|in|to|for|is|are|it|by|as|at|be|do|if|or|on)$/i.test(trimmed)) {
+    if (/^(?:a|an|the|of|in|to|for|is|are|it|by|as|at|be|do|if|or|on|and|with|about|similar|visual|search)$/i.test(trimmed)) {
       return false;
     }
     return true;
@@ -530,6 +727,34 @@ export function extractDictionaryQuery(rawQuery: string): string | null {
   const p4 = clean.match(/^what does\s+([a-z\s\-]+)\s+mean$/i);
   if (p4 && isValidTargetWord(p4[1])) {
     return p4[1].trim();
+  }
+
+  // Pattern 5: Exact match in offline dictionary or session cache
+  if (OFFLINE_DICTIONARY[clean] && isValidTargetWord(clean)) {
+    return clean;
+  }
+
+  // Pattern 6: Visual search context extraction
+  if (isVisualSearch) {
+    const tokens = clean
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(t => isValidTargetWord(t));
+
+    // First check if any token is directly present in OFFLINE_DICTIONARY
+    for (const token of tokens) {
+      if (OFFLINE_DICTIONARY[token]) {
+        return token;
+      }
+    }
+
+    // Otherwise pick the most informative keyword token
+    if (tokens.length > 0) {
+      const sorted = [...tokens].sort((a, b) => b.length - a.length);
+      return sorted[0];
+    }
+
+    return 'image';
   }
 
   return null;

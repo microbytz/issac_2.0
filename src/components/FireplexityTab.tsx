@@ -527,34 +527,35 @@ export default function FireplexityTab({
               e.preventDefault();
               handleRunSearch();
             }}
-            className={`max-w-3xl w-full mx-auto rounded-2xl border p-2 flex items-center gap-2 transition-all shadow-xl ${
+            className={`max-w-3xl w-full mx-auto rounded-2xl border p-1.5 sm:p-2 flex items-center gap-1.5 sm:gap-2 transition-all shadow-xl ${
               isLight
                 ? 'bg-white border-slate-300 focus-within:border-slate-500 focus-within:ring-4 focus-within:ring-slate-200'
                 : 'bg-zinc-900/90 border-zinc-800 focus-within:border-zinc-600 focus-within:ring-4 focus-within:ring-zinc-800/40'
             }`}
           >
-            <Search className={`w-5 h-5 ml-3 shrink-0 ${isLight ? 'text-slate-400' : 'text-zinc-500'}`} />
+            <Search className={`w-4 h-4 sm:w-5 sm:h-5 ml-2 sm:ml-3 shrink-0 ${isLight ? 'text-slate-400' : 'text-zinc-500'}`} />
             <input
               ref={inputRef}
               type="text"
               value={inputQuery}
               onChange={e => setInputQuery(e.target.value)}
-              placeholder="Ask anything... (e.g., 'NVIDIA stock & Blackwell architecture', 'How does Whoosh BM25 work?')"
-              className={`flex-1 bg-transparent border-none py-2.5 px-2 text-base focus:outline-none ${
+              placeholder="Ask any research question..."
+              className={`flex-1 min-w-0 bg-transparent border-none py-2 sm:py-2.5 px-2 text-sm sm:text-base focus:outline-none ${
                 isLight ? 'text-slate-900 placeholder:text-slate-400' : 'text-zinc-100 placeholder:text-zinc-500'
               }`}
-             aria-label="Ask anything... (e.g., 'NVIDIA stock & Blackwell architecture', 'How does Whoosh BM25 work?')" />
+             aria-label="Ask any research question (e.g., NVIDIA architecture, Whoosh BM25)" />
             <button
               type="submit"
               disabled={!inputQuery.trim() || isSearching}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 shrink-0 shadow-md border ${
+              className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 shrink-0 shadow-md border ${
                 isLight
                   ? 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
                   : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border-zinc-700'
               }`}
             >
               {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-              <span>Deep Search</span>
+              <span className="hidden sm:inline">Deep Search</span>
+              <span className="sm:hidden">Search</span>
             </button>
           </form>
 

@@ -52,6 +52,7 @@ export const BulkExportModal: React.FC<BulkExportModalProps> = ({
   isLight = false,
   onNotify
 }) => {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   const [activeTab, setActiveTab] = useState<'configure' | 'bookmarks' | 'preview'>('configure');
   const [isCopied, setIsCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -142,7 +143,6 @@ export const BulkExportModal: React.FC<BulkExportModalProps> = ({
     }
   };
 
-  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <AnimatePresence>
       <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Export collection" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto bg-slate-950/80 backdrop-blur-md">

@@ -33,12 +33,14 @@ import {
   Download,
   Bell,
   BellRing,
-  ShieldCheck
+  ShieldCheck,
+  Camera
 } from 'lucide-react';
 
 import {
   DictionaryEntry,
   extractDictionaryQuery,
+  extractVisualCandidateWords,
   lookupDictionaryWord,
   getImmediateDictionaryEntry
 } from '../utils/dictionaryService';
@@ -78,6 +80,7 @@ export interface InstantAnswerProps {
   query: string;
   isLight: boolean;
   onSelectTag?: (tag: string) => void;
+  activeVisualSearchImage?: string | null;
 }
 
 // ----------------------------------------------------------------------------
@@ -117,8 +120,16 @@ function evaluateMathExpression(expr: string): number | null {
   return null;
 }
 
-export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLight, onSelectTag }) => {
+export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({
+  query,
+  isLight,
+  onSelectTag,
+  activeVisualSearchImage
+}) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const isVisual = Boolean(activeVisualSearchImage);
+  const candidateKeywords = useMemo(() => extractVisualCandidateWords(query), [query]);
 
   // 1. Calculator State
   const [calcInput, setCalcInput] = useState<string>('');
@@ -303,24 +314,40 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
   // --------------------------------------------------------------------------
   // Synchronous extraction directly from current query for zero-delay offline rendering
   const rawDictWord = useMemo(() => {
-    return extractDictionaryQuery(query);
-  }, [query]);
+    return extractDictionaryQuery(query, isVisual);
+  }, [query, isVisual]);
+
+  const handleInspectWord = (word: string) => {
+    const immediate = getImmediateDictionaryEntry(word);
+    if (immediate) {
+      setDictData(immediate);
+    } else {
+      setDictLoading(true);
+      lookupDictionaryWord(word).then(res => {
+        if (res) setDictData(res);
+      }).finally(() => {
+        setDictLoading(false);
+      });
+    }
+  };
 
   // Load offline entries immediately in 0ms without waiting for debounce
   useEffect(() => {
     if (!rawDictWord) {
-      setDictData(null);
+      if (!isVisual) {
+        setDictData(null);
+      }
       return;
     }
     const immediate = getImmediateDictionaryEntry(rawDictWord);
     if (immediate) {
       setDictData(immediate);
     }
-  }, [rawDictWord]);
+  }, [rawDictWord, isVisual]);
 
   const targetDictWord = useMemo(() => {
-    return extractDictionaryQuery(debouncedQuery);
-  }, [debouncedQuery]);
+    return extractDictionaryQuery(debouncedQuery, isVisual);
+  }, [debouncedQuery, isVisual]);
 
   useEffect(() => {
     if (!targetDictWord) {
@@ -353,6 +380,16 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
       abortController.abort();
     };
   }, [targetDictWord]);
+
+  // Visual Search fallback: ensure dictionary definition displays when searching by image
+  useEffect(() => {
+    if (isVisual && !dictData) {
+      const bestWord = rawDictWord || targetDictWord || (candidateKeywords.length > 0 ? candidateKeywords[0] : 'image');
+      if (bestWord) {
+        handleInspectWord(bestWord);
+      }
+    }
+  }, [isVisual, dictData, rawDictWord, targetDictWord, candidateKeywords]);
 
   // --------------------------------------------------------------------------
   // 4. Wikipedia Entity InfoBox Check (with Typo-Tolerance e.g. "issac newton")
@@ -658,11 +695,12 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
 
   // Immediate dictionary readiness check - displays instantaneously when definition is available
   const isDictReady = Boolean(
-    dictData && rawDictWord && dictData.word.toLowerCase() === rawDictWord.toLowerCase()
+    dictData && (isVisual || (rawDictWord && dictData.word.toLowerCase() === rawDictWord.toLowerCase()))
   );
 
   // If no instant answer matched, or user is still actively typing, render nothing
   const hasActiveWidget = Boolean(
+    activeVisualSearchImage ||
     isDictReady ||
     (!isTyping && (
       mathResult ||
@@ -697,6 +735,68 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({ query, isLig
           : 'bg-[#090f20]/90 border-blue-900/40 shadow-black/40 backdrop-blur-sm text-slate-200'
       }`}
     >
+      {/* ==================================================================== */}
+      {/* 0. VISUAL SEARCH & IMAGE MATCH CARD                                 */}
+      {/* ==================================================================== */}
+      {activeVisualSearchImage && (
+        <div className={`p-5 border-b flex flex-col gap-4 ${
+          isLight ? 'bg-indigo-50/70 border-indigo-100 text-slate-800' : 'bg-indigo-950/25 border-indigo-900/50 text-slate-200'
+        }`}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <span className="text-xs font-bold text-indigo-400 flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              <Camera className="w-3.5 h-3.5" />
+              <span>Visual Search Analysis & Instant Lexicon</span>
+            </span>
+            <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">
+              Image Target Active
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="w-20 h-20 rounded-xl overflow-hidden border border-indigo-500/40 shrink-0 shadow-md bg-black/40">
+              <img
+                src={activeVisualSearchImage}
+                alt="Active visual search target"
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-slate-400 font-sans">Visual Subject Definition:</span>
+                <span className="text-sm font-bold text-indigo-300 uppercase tracking-wide bg-indigo-500/20 px-2.5 py-0.5 rounded-lg border border-indigo-500/30">
+                  {dictData?.word || targetDictWord || rawDictWord || (candidateKeywords[0] || 'Image')}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 font-sans leading-relaxed">
+                Displaying English lexicon definitions, parts of speech, and knowledge references matching this image.
+              </p>
+
+              {/* Related keyword pills */}
+              {candidateKeywords.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  <span className="text-[11px] text-slate-400 font-mono">Inspect terms:</span>
+                  {candidateKeywords.map(term => (
+                    <button
+                      key={term}
+                      type="button"
+                      onClick={() => handleInspectWord(term)}
+                      className={`text-[11px] px-2.5 py-0.5 rounded-md border font-sans font-medium transition-all cursor-pointer ${
+                        dictData?.word.toLowerCase() === term.toLowerCase()
+                          ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
+                          : isLight
+                          ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                          : 'bg-slate-900/80 hover:bg-slate-800 text-indigo-300 border-indigo-900/60'
+                      }`}
+                    >
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {/* ==================================================================== */}
       {/* 1. CALCULATOR / MATH ZERO-CLICK ANSWER                              */}
       {/* ==================================================================== */}

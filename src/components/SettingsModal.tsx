@@ -23,7 +23,10 @@ import {
   RefreshCw,
   Flame,
   ShieldCheck,
-  ChevronDown
+  ChevronDown,
+  Layout,
+  SlidersHorizontal,
+  Type
 } from 'lucide-react';
 import {
   getBackendBaseUrl,
@@ -49,6 +52,14 @@ export interface SettingsModalProps {
   onSetSafeSearchLevel?: (level: SafeSearchLevel) => void;
   onOpenClearTrace?: () => void;
   defaultTab?: 'privacy' | 'display' | 'server';
+  openInNewTab?: boolean;
+  onToggleOpenInNewTab?: () => void;
+  resultsDensity?: 'compact' | 'comfortable';
+  onSetResultsDensity?: (density: 'compact' | 'comfortable') => void;
+  paginationMode?: 'paged' | 'infinite';
+  onSetPaginationMode?: (mode: 'paged' | 'infinite') => void;
+  fontSizePreference?: 'small' | 'medium' | 'large';
+  onSetFontSizePreference?: (size: 'small' | 'medium' | 'large') => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -65,8 +76,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   safeSearchLevel = 'moderate',
   onSetSafeSearchLevel,
   onOpenClearTrace,
-  defaultTab = 'privacy'
+  defaultTab = 'privacy',
+  openInNewTab = true,
+  onToggleOpenInNewTab,
+  resultsDensity = 'comfortable',
+  onSetResultsDensity,
+  paginationMode = 'paged',
+  onSetPaginationMode,
+  fontSizePreference = 'medium',
+  onSetFontSizePreference
 }) => {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   const [settingsTab, setSettingsTab] = useState<'privacy' | 'display' | 'server'>(defaultTab);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [lastSessionTerminationTest, setLastSessionTerminationTest] = useState<string | null>(null);
@@ -167,7 +187,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <AnimatePresence>
       <div
@@ -642,58 +661,237 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             {settingsTab === 'display' && (
-            <div
-              className={`p-5 rounded-2xl border transition-all ${
-                isLight
-                  ? 'bg-slate-50/70 border-slate-200 shadow-xs'
-                  : 'bg-[#0b1328]/50 border-slate-800'
-              }`}
-            >
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                  <Sun className="w-4 h-4" />
+            <div className="space-y-4">
+              {/* Theme Section */}
+              <div
+                className={`p-5 rounded-2xl border transition-all ${
+                  isLight
+                    ? 'bg-slate-50/70 border-slate-200 shadow-xs'
+                    : 'bg-[#0b1328]/50 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                    <Sun className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold font-sans">Theme & Contrast</h3>
+                    <p className="text-xs text-slate-500">Color appearance and dark/light modes</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold font-sans">Theme & Display</h3>
-                  <p className="text-xs text-slate-500">Color contrast and application appearance</p>
+
+                <div
+                  className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                  }`}
+                >
+                  <div>
+                    <div className="text-sm font-bold font-sans">Theme Mode</div>
+                    <p className="text-xs text-slate-400">
+                      Currently set to <span className="font-semibold text-slate-200">{isLight ? 'High-Contrast Light' : 'Dark Mode'}</span>
+                    </p>
+                  </div>
+
+                  {onToggleTheme && (
+                    <button
+                      onClick={onToggleTheme}
+                      type="button"
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        isLight
+                          ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                          : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      {isLight ? (
+                        <>
+                          <Moon className="w-3.5 h-3.5" />
+                          <span>Switch to Dark</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sun className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Switch to Light</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
 
+              {/* Search Results Display & Behavior */}
               <div
-                className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
-                  isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                className={`p-5 rounded-2xl border transition-all ${
+                  isLight
+                    ? 'bg-slate-50/70 border-slate-200 shadow-xs'
+                    : 'bg-[#0b1328]/50 border-slate-800'
                 }`}
               >
-                <div>
-                  <div className="text-sm font-bold font-sans">Theme Mode</div>
-                  <p className="text-xs text-slate-400">
-                    Currently set to <span className="font-semibold text-slate-200">{isLight ? 'High-Contrast Light' : 'Dark Mode'}</span>
-                  </p>
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                    <SlidersHorizontal className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold font-sans">Search Results Customization</h3>
+                    <p className="text-xs text-slate-500">Layout, link handling, typography, and browsing density</p>
+                  </div>
                 </div>
 
-                {onToggleTheme && (
-                  <button
-                    onClick={onToggleTheme}
-                    type="button"
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                      isLight
-                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
-                        : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                <div className="space-y-3">
+                  {/* 1. Open links in new tab */}
+                  <div
+                    className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
                     }`}
                   >
-                    {isLight ? (
-                      <>
-                        <Moon className="w-3.5 h-3.5" />
-                        <span>Switch to Dark</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sun className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Switch to Light</span>
-                      </>
+                    <div>
+                      <div className="text-sm font-bold font-sans flex items-center gap-1.5">
+                        <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Open Outbound Links in New Tab</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {openInNewTab ? 'External web links open in a fresh browser tab' : 'Links open in current browser tab'}
+                      </p>
+                    </div>
+
+                    {onToggleOpenInNewTab && (
+                      <button
+                        type="button"
+                        onClick={onToggleOpenInNewTab}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          openInNewTab ? 'bg-blue-600' : isLight ? 'bg-slate-300' : 'bg-slate-700'
+                        }`}
+                        role="switch"
+                        aria-checked={openInNewTab}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                            openInNewTab ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
                     )}
-                  </button>
-                )}
+                  </div>
+
+                  {/* 2. Results Density */}
+                  <div
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-sm font-bold font-sans flex items-center gap-1.5">
+                        <Layout className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Results Information Density</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Comfortable includes full excerpts; compact reduces card padding for fast scanning
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 bg-slate-900/50 p-1 rounded-xl border border-slate-800 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onSetResultsDensity?.('comfortable')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          resultsDensity === 'comfortable'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Comfortable
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSetResultsDensity?.('compact')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          resultsDensity === 'compact'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Compact
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3. Result Font Size / Readability */}
+                  <div
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-sm font-bold font-sans flex items-center gap-1.5">
+                        <Type className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Snippet Font Size</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Adjust text size of descriptions and preview summaries for readability
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 bg-slate-900/50 p-1 rounded-xl border border-slate-800 shrink-0">
+                      {(['small', 'medium', 'large'] as const).map((sz) => (
+                        <button
+                          key={sz}
+                          type="button"
+                          onClick={() => onSetFontSizePreference?.(sz)}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold capitalize transition-all cursor-pointer ${
+                            fontSizePreference === sz
+                              ? 'bg-blue-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {sz}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 4. Results Navigation Mode */}
+                  <div
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-sm font-bold font-sans flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Pagination Style</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {paginationMode === 'infinite'
+                          ? 'Auto-loads more results as you scroll down the page'
+                          : 'Classic Show More buttons with explicit results counter'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 bg-slate-900/50 p-1 rounded-xl border border-slate-800 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onSetPaginationMode?.('paged')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          paginationMode === 'paged'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Paged Buttons
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSetPaginationMode?.('infinite')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          paginationMode === 'infinite'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Auto-Infinite
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             )}

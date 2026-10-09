@@ -43,6 +43,7 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
   isLight = false,
   onNotify
 }) => {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   const [activeTab, setActiveTab] = useState<'configure' | 'manifest' | 'preview'>('configure');
   const [isCopied, setIsCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -146,7 +147,6 @@ export const BatchExportCollectionsModal: React.FC<BatchExportCollectionsModalPr
     }
   };
 
-  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <div ref={focusTrapRef} role="dialog" aria-modal="true" aria-label="Batch export collections" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto animate-fade-in">
       <motion.div

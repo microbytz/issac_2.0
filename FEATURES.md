@@ -137,3 +137,29 @@ This document provides a complete overview of all user-facing features and capab
   - **Clear Search History**: Delete your recent search queries with one click.
   - **Clear History on Exit**: Automatically erase your search history whenever you close the browser tab.
   - **Blocked Websites List**: View and manage the list of websites you have chosen to hide from your search results.
+
+---
+
+## 8. Search Alerts & Saved Queries Monitor
+- **Query Bookmarking & Monitoring**: Save recurring or critical research topics with a single click right from the search bar (`Bell` icon) or results toolbar.
+- **Configurable Alert Schedules**: Set query alert checking frequencies (`Hourly`, `Daily`, `Weekly`) and add custom notes or tags.
+- **One-Click Re-run**: Rerun saved queries instantly and check for fresh index and SearXNG updates.
+- **Persistent Storage & Quick Filters**: Search through saved alerts, toggle active monitoring, and manage alert history with zero setup.
+
+---
+
+## 9. Reverse Image & Visual Search
+- **Camera / Visual Search Button**: Integrated camera button directly in the primary search bar.
+- **Dual Input Methods**: Drag-and-drop or upload local image files (PNG, JPG, WebP), or paste any live image URL.
+- **Visual Subject Breakdown & Tags**: Inspect and analyze images to extract visual subject keywords, dominant color palettes, and contextual search hints.
+- **Active Visual Search Match Mode**: Pinned banner above search results displaying target thumbnail, match status, and one-click image swap or dismiss.
+
+---
+
+## 10. Search Result Customization & Display Preferences
+- **New Tab vs. Same Tab Links**: Configurable `Open Outbound Links in New Tab` preference (`target="_blank"` vs `target="_self"`).
+- **Result Density Modes**: Switch between **Comfortable** (roomy padding with extensive metadata) and **Compact** (tight line spacing for rapid scanning).
+- **Pagination Modes**: Toggle between **Paged Mode** (traditional page indicator and batch loader) and **Auto-Infinite Scroll** (smooth automatic continuous scroll expansion).
+- **Custom Result Font Sizing**: Fine-tune result text sizes between **Small**, **Medium**, and **Large** across titles, snippets, and source URLs.
+- **Quick Switcher Pill**: Toggle navigation modes on the fly directly in the search results footer or via Settings dialog.
+

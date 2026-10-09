@@ -21,6 +21,7 @@ export const BM25ScoreInspector: React.FC<BM25ScoreInspectorProps> = ({
   isOpen,
   onClose
 }) => {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   if (!isOpen) return null;
 
   const isDark = theme === 'dark';
@@ -42,7 +43,6 @@ export const BM25ScoreInspector: React.FC<BM25ScoreInspectorProps> = ({
   const matchedTerms = details?.matchedTerms || [];
   const idfBreakdown = details?.idfBreakdown || {};
 
-  const focusTrapRef = useFocusTrap<HTMLDivElement>();
   return (
     <>
       {/* Backdrop */}

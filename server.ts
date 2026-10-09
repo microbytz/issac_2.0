@@ -334,31 +334,31 @@ async function performLiveMultiSourceFallback(
   await Promise.all([wikiPromise, hnPromise]);
 
   if (imageResults.length < 4) {
-    const fallbackVisuals: FireplexityImageItem[] = [
-      {
-        url: sources[0]?.url || 'https://en.wikipedia.org/wiki/Search_engine',
-        title: `${query} — Architecture & System Overview`,
-        thumbnail: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=900&q=80',
-        source: sources[0]?.siteName || 'system.architecture'
-      },
-      {
-        url: sources[1]?.url || 'https://developer.mozilla.org',
-        title: `${query} — Distributed Data & Indexing Pipeline`,
-        thumbnail: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=900&q=80',
-        source: sources[1]?.siteName || 'distributed.systems'
-      },
-      {
-        url: sources[2]?.url || 'https://news.ycombinator.com',
-        title: `${query} — Telemetry & Performance Benchmarks`,
-        thumbnail: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=900&q=80',
-        source: sources[2]?.siteName || 'benchmarks.io'
+    try {
+      const openverseUrl = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(
+        query
+      )}&page=1&page_size=6&mature=false`;
+      const ovRes = await fetch(openverseUrl, {
+        headers: { Accept: 'application/json', 'User-Agent': 'IsaacSearchFireplexity/2.0' },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (ovRes.ok) {
+        const ovData: any = await ovRes.json();
+        const results = Array.isArray(ovData?.results) ? ovData.results : [];
+        for (const r of results) {
+          if (imageResults.length >= 6) break;
+          const imgUrl = r.thumbnail || r.url;
+          if (imgUrl) {
+            imageResults.push({
+              url: r.foreign_landing_url || r.url || 'https://openverse.org',
+              title: r.title || `${query} Visual Reference`,
+              thumbnail: imgUrl,
+              source: 'openverse.org'
+            });
+          }
+        }
       }
-    ];
-    for (const vis of fallbackVisuals) {
-      if (imageResults.length < 4) {
-        imageResults.push(vis);
-      }
-    }
+    } catch (_) {}
   }
 
   return {

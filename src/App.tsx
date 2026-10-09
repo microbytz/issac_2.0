@@ -14,12 +14,17 @@ import {
   RotateCw, Zap, FileJson, Upload, Cpu, CornerDownLeft, Hash, ArrowUpRight, Table,
   CornerDownRight, ListTree, ChevronsUpDown, CheckCheck, FolderArchive, Archive, GripVertical, ArrowUpDown,
   Tags, GitMerge, FolderTree, GitFork, Shield, Newspaper, Video, ShieldCheck, ShieldAlert,
-  Flame
+  Flame,
+  Camera,
+  Bell,
+  Menu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import BangsModal from './components/BangsModal';
 import ClearTraceModal from './components/ClearTraceModal';
 import RegionFilterDropdown from './components/RegionFilterDropdown';
+import SavedQueriesModal from './components/SavedQueriesModal';
+import VisualSearchModal from './components/VisualSearchModal';
 import { DUCK_BANGS, DuckBang, parseBangQuery, getMatchingBangs } from './utils/duckBangs';
 import { SEARCH_REGIONS, getRegionByCode } from './utils/duckRegions';
 import { exportProjectToPDF, exportSearchResultsToPDF } from './utils/pdfGenerator';
@@ -1256,6 +1261,9 @@ export default function App() {
 
   // Navigation & Search State
   const [activeTab, setActiveTab] = useState<'search' | 'fireplexity' | 'crawler' | 'graph' | 'collections' | 'projects'>('search');
+  const [hasSearched, setHasSearched] = useState(false);
+  const [isNavDrawerOpen, setIsNavDrawerOpen] = useState(false);
+  const [homeNewsTopic, setHomeNewsTopic] = useState<'technology' | 'ai' | 'science' | 'business'>('technology');
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [selectedPaletteIndex, setSelectedPaletteIndex] = useState(0);
@@ -1833,6 +1841,85 @@ export default function App() {
     prefix: string;
   } | null>(null);
 
+  // Feature 4: Search Alerts & Saved Queries Modal State
+  const [showSavedQueriesModal, setShowSavedQueriesModal] = useState(false);
+
+  // Feature 6: Reverse Image & Visual Search State
+  const [showVisualSearchModal, setShowVisualSearchModal] = useState(false);
+  const [activeVisualSearchImage, setActiveVisualSearchImage] = useState<string | null>(null);
+
+  // Feature 7: Results Customization Preferences
+  const [openInNewTab, setOpenInNewTab] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('isaac_open_in_new_tab');
+      return stored !== null ? JSON.parse(stored) : true;
+    } catch (_) {
+      return true;
+    }
+  });
+
+  const [resultsDensity, setResultsDensity] = useState<'compact' | 'comfortable'>(() => {
+    try {
+      const stored = localStorage.getItem('isaac_results_density');
+      return (stored === 'compact' || stored === 'comfortable') ? stored : 'comfortable';
+    } catch (_) {
+      return 'comfortable';
+    }
+  });
+
+  const [paginationMode, setPaginationMode] = useState<'paged' | 'infinite'>(() => {
+    try {
+      const stored = localStorage.getItem('isaac_pagination_mode');
+      return (stored === 'infinite' || stored === 'paged') ? stored : 'paged';
+    } catch (_) {
+      return 'paged';
+    }
+  });
+
+  const [fontSizePreference, setFontSizePreference] = useState<'small' | 'medium' | 'large'>(() => {
+    try {
+      const stored = localStorage.getItem('isaac_font_size');
+      return (stored === 'small' || stored === 'medium' || stored === 'large') ? stored : 'medium';
+    } catch (_) {
+      return 'medium';
+    }
+  });
+
+  const handleToggleOpenInNewTab = () => {
+    setOpenInNewTab(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('isaac_open_in_new_tab', JSON.stringify(next));
+      } catch (_) {}
+      showToast(next ? 'Outbound links will open in a new tab' : 'Outbound links will open in the current tab', 'info');
+      return next;
+    });
+  };
+
+  const handleSetResultsDensity = (density: 'compact' | 'comfortable') => {
+    setResultsDensity(density);
+    try {
+      localStorage.setItem('isaac_results_density', density);
+    } catch (_) {}
+    showToast(`Results density set to ${density}`, 'info');
+  };
+
+  const handleSetPaginationMode = (mode: 'paged' | 'infinite') => {
+    setPaginationMode(mode);
+    try {
+      localStorage.setItem('isaac_pagination_mode', mode);
+    } catch (_) {}
+    showToast(`Navigation mode set to ${mode === 'infinite' ? 'Auto-Infinite Scroll' : 'Paged Buttons'}`, 'info');
+  };
+
+  const handleSetFontSizePreference = (sz: 'small' | 'medium' | 'large') => {
+    setFontSizePreference(sz);
+    try {
+      localStorage.setItem('isaac_font_size', sz);
+    } catch (_) {}
+    showToast(`Result text size set to ${sz}`, 'info');
+  };
+
   // Advanced Filter state variables
   const [filterDomain, setFilterDomain] = useState('');
   const [filterDateRange, setFilterDateRange] = useState<'any' | '24h' | '7d' | '30d' | '365d' | 'custom'>('any');
@@ -2111,7 +2198,7 @@ export default function App() {
     status: 'idle',
     pages_crawled: 5,
     errors: 0,
-    started_at: 'N/A'
+    started_at: 'Initial Index (Synced)'
   });
 
   // Image indexing state
@@ -2451,6 +2538,7 @@ export default function App() {
   const [graphLayout, setGraphLayout] = useState<'sandbox' | 'orbit' | 'starburst' | 'clusters'>('sandbox');
   const [minBacklinks, setMinBacklinks] = useState<number>(0);
   const [showNodeLabels, setShowNodeLabels] = useState<boolean>(true);
+  const [isGraphLegendMinimized, setIsGraphLegendMinimized] = useState<boolean>(false);
 
   const filteredGraphNodes = useMemo(() => {
     return graphNodes.filter(node => node.backlinks >= minBacklinks);
@@ -3902,6 +3990,7 @@ export default function App() {
     const effectiveDomain = overrideDomain !== undefined ? overrideDomain : (syntax.siteFilter || filterDomain);
 
     setIsSearching(true);
+    setHasSearched(true);
     setCurrentPage(1);
     setVisibleResultsCount(20);
     setShowSuggestions(false);
@@ -4224,6 +4313,34 @@ export default function App() {
       return;
     }
     setIsSearching(false);
+  };
+
+  // Feature 6: Perform Visual Search
+  const handlePerformVisualSearch = (imageUrl: string, queryHint?: string) => {
+    setActiveVisualSearchImage(imageUrl);
+    const searchTerms = queryHint && queryHint.trim() ? queryHint.trim() : 'visual search image';
+    setSearchQuery(searchTerms);
+    setHasSearched(true);
+    setActiveTab('search');
+    setSearchMode('all');
+    handleSearch(searchTerms);
+    showToast(`Visual search activated. Matching image content & definitions...`, 'success');
+  };
+
+  const handleClearVisualSearch = () => {
+    setActiveVisualSearchImage(null);
+    setHasSearched(false);
+    showToast('Visual search filter cleared.', 'info');
+  };
+
+  const handleResetToHome = () => {
+    setActiveTab('search');
+    setSearchQuery('');
+    setActiveVisualSearchImage(null);
+    setHasSearched(false);
+    setSearchResults(DEFAULT_PAGES);
+    setSearchSuggestions([]);
+    setShowSuggestions(false);
   };
 
   // DuckDuckGo-style "Clear All Trace" (Fire Button equivalent)
@@ -4960,9 +5077,9 @@ export default function App() {
     };
   }, []);
 
-  // Google-style continuous scroll expansion: smooth auto-reveal of buffered results as user scrolls
+  // Google-style continuous scroll expansion: smooth auto-reveal of buffered results as user scrolls when paginationMode is infinite
   useEffect(() => {
-    if (activeTab !== 'search' || searchMode !== 'all') return;
+    if (activeTab !== 'search' || searchMode !== 'all' || paginationMode !== 'infinite') return;
     const handleScroll = () => {
       if (isLoadingMoreResults || isSearching) return;
       const scrollY = window.scrollY || document.documentElement.scrollTop;
@@ -4978,7 +5095,7 @@ export default function App() {
 
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [activeTab, searchMode, visibleResultsCount, filteredSearchResults.length, isLoadingMoreResults, isSearching]);
+  }, [activeTab, searchMode, visibleResultsCount, filteredSearchResults.length, isLoadingMoreResults, isSearching, paginationMode]);
 
   // Immediate synchronous candidate finder for Tab autocomplete before debounce finishes
   const getImmediateAutocompleteCandidate = (
@@ -7326,33 +7443,342 @@ export default function App() {
       <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-zinc-500/10 rounded-full blur-[120px] pointer-events-none transition-opacity duration-300 ${isLight ? 'opacity-0' : 'opacity-100'}`} />
       <div className={`absolute top-[20%] right-[10%] w-[250px] h-[250px] bg-zinc-500/10 rounded-full blur-[80px] pointer-events-none transition-opacity duration-300 ${isLight ? 'opacity-0' : 'opacity-100'}`} />
 
+      {/* 3-Line Navigation Drawer (Slide-over) */}
+      <AnimatePresence>
+        {isNavDrawerOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation Menu"
+            className="fixed inset-0 z-[120] flex"
+          >
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsNavDrawerOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            />
+
+            {/* Drawer Panel */}
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 260 }}
+              className={`relative z-10 w-full max-w-xs sm:max-w-sm h-full shadow-2xl flex flex-col justify-between overflow-y-auto border-r ${
+                isLight
+                  ? 'bg-white border-slate-200 text-slate-800'
+                  : 'bg-[#060a19] border-slate-800/90 text-slate-100 shadow-blue-950/30'
+              }`}
+            >
+              <div className="p-5 flex flex-col gap-5">
+                {/* Drawer Header */}
+                <div className="flex items-center justify-between pb-4 border-b border-slate-800/60">
+                  <div className="flex items-center gap-2.5">
+                    <img src="/logo.png" alt="Isaac logo" className="w-8 h-8 rounded-xl object-cover shadow-sm" />
+                    <div>
+                      <div className="font-extrabold text-sm tracking-tight font-sans">Isaac Search</div>
+                      <div className="text-[10px] text-slate-400 font-mono">v2.4 • Research Intelligence</div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setIsNavDrawerOpen(false)}
+                    type="button"
+                    className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                      isLight ? 'hover:bg-slate-100 border-slate-200 text-slate-600' : 'hover:bg-slate-800 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                    title="Close menu"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Navigation Items */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold px-2 py-1">
+                    Modules &amp; Workspaces
+                  </div>
+
+                  {/* 1. Web Search */}
+                  <button
+                    onClick={() => {
+                      setActiveTab('search');
+                      setIsNavDrawerOpen(false);
+                    }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                      activeTab === 'search'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-400 font-bold shadow-xs'
+                        : isLight
+                        ? 'border-transparent hover:bg-slate-100 text-slate-700'
+                        : 'border-transparent hover:bg-slate-900/60 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'search' ? 'bg-blue-600 text-white' : 'bg-slate-800/70 text-blue-400'}`}>
+                      <Search className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold font-sans">Web Search</div>
+                      <div className="text-[11px] text-slate-400 font-normal leading-snug truncate">
+                        Privacy-first search, instant answers &amp; lexicon
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* 2. Fireplexity AI */}
+                  <button
+                    onClick={() => {
+                      setActiveTab('fireplexity');
+                      setIsNavDrawerOpen(false);
+                    }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer relative ${
+                      activeTab === 'fireplexity'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-400 font-bold shadow-xs'
+                        : isLight
+                        ? 'border-transparent hover:bg-slate-100 text-slate-700'
+                        : 'border-transparent hover:bg-slate-900/60 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'fireplexity' ? 'bg-blue-600 text-white' : 'bg-slate-800/70 text-blue-400'}`}>
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold font-sans">Fireplexity AI</span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-blue-500/20 text-blue-400 font-bold">v2</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-normal leading-snug truncate">
+                        Deep multi-source research with cited links
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* 3. Crawler */}
+                  <button
+                    onClick={() => {
+                      setActiveTab('crawler');
+                      setIsNavDrawerOpen(false);
+                    }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                      activeTab === 'crawler'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-400 font-bold shadow-xs'
+                        : isLight
+                        ? 'border-transparent hover:bg-slate-100 text-slate-700'
+                        : 'border-transparent hover:bg-slate-900/60 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'crawler' ? 'bg-blue-600 text-white' : 'bg-slate-800/70 text-blue-400'}`}>
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold font-sans">Web Crawler</div>
+                      <div className="text-[11px] text-slate-400 font-normal leading-snug truncate">
+                        Domain seeds, spider queues &amp; Firestore index
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* 4. Graph */}
+                  <button
+                    onClick={() => {
+                      setActiveTab('graph');
+                      setIsNavDrawerOpen(false);
+                    }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                      activeTab === 'graph'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-400 font-bold shadow-xs'
+                        : isLight
+                        ? 'border-transparent hover:bg-slate-100 text-slate-700'
+                        : 'border-transparent hover:bg-slate-900/60 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'graph' ? 'bg-blue-600 text-white' : 'bg-slate-800/70 text-blue-400'}`}>
+                      <Activity className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold font-sans">Knowledge Graph</div>
+                      <div className="text-[11px] text-slate-400 font-normal leading-snug truncate">
+                        Interactive network visualization of web links
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* 5. Collections */}
+                  <button
+                    onClick={() => {
+                      setActiveTab('collections');
+                      setIsNavDrawerOpen(false);
+                    }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                      activeTab === 'collections'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-400 font-bold shadow-xs'
+                        : isLight
+                        ? 'border-transparent hover:bg-slate-100 text-slate-700'
+                        : 'border-transparent hover:bg-slate-900/60 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'collections' ? 'bg-blue-600 text-white' : 'bg-slate-800/70 text-blue-400'}`}>
+                      <Folder className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold font-sans">Collections</span>
+                        <span className="text-[10px] font-mono px-1.5 rounded-full bg-slate-800 text-slate-400">
+                          {collections.reduce((a, c) => a + c.pages.length, 0)} items
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-normal leading-snug truncate">
+                        Saved folders, bookmarks &amp; exports
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* 6. Projects */}
+                  <button
+                    onClick={() => {
+                      setActiveTab('projects');
+                      setIsNavDrawerOpen(false);
+                    }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                      activeTab === 'projects'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-400 font-bold shadow-xs'
+                        : isLight
+                        ? 'border-transparent hover:bg-slate-100 text-slate-700'
+                        : 'border-transparent hover:bg-slate-900/60 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'projects' ? 'bg-blue-600 text-white' : 'bg-slate-800/70 text-blue-400'}`}>
+                      <Briefcase className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold font-sans">Projects</span>
+                        <span className="text-[10px] font-mono px-1.5 rounded-full bg-slate-800 text-slate-400">
+                          {projects.length}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-normal leading-snug truncate">
+                        Workspaces, research boards &amp; tasks
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Quick Tools */}
+                <div className="border-t border-slate-800/60 pt-3 flex flex-col gap-1.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold px-2 py-1">
+                    Quick Actions
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setIsNavDrawerOpen(false);
+                      setShowCommandPalette(true);
+                    }}
+                    className="px-3 py-2 rounded-lg text-xs font-sans font-medium flex items-center justify-between text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Command className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Command Palette</span>
+                    </span>
+                    <span className="hidden md:inline text-[10px] font-mono text-slate-400">⌘K</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsNavDrawerOpen(false);
+                      handleClearAllTrace();
+                    }}
+                    className="px-3 py-2 rounded-lg text-xs font-sans font-medium flex items-center justify-between text-rose-400 hover:text-rose-300 hover:bg-rose-950/20 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Flame className="w-3.5 h-3.5" />
+                      <span>Clear All Traces (Fire)</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-rose-500">Wipe</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsNavDrawerOpen(false);
+                      setShowSettingsModal(true);
+                    }}
+                    className="px-3 py-2 rounded-lg text-xs font-sans font-medium flex items-center justify-between text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Settings className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Settings &amp; Privacy</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Drawer Footer */}
+              <div className={`p-4 border-t text-xs flex items-center justify-between ${
+                isLight ? 'border-slate-200 bg-slate-50 text-slate-500' : 'border-slate-800/60 bg-[#040814] text-slate-400'
+              }`}>
+                <span>Isaac Engine</span>
+                <span className="font-mono text-[10px]">Private &amp; Open Source</span>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Responsive Unified Header */}
-      <header className="w-full relative z-30 pt-3 sm:pt-5 pb-3 px-3 sm:px-6">
-        <div className="w-full max-w-7xl mx-auto flex flex-col gap-3 sm:gap-4">
-          {/* Top Bar: Title (Left), Desktop-only Quick Jump (Center), Settings & Theme (Right) */}
-          <div className="w-full flex items-center justify-between gap-2">
-            {/* Title / Brand Header - Left aligned, never overlaps with controls */}
+      <header className="w-full relative z-30 pt-3 sm:pt-4 pb-2 px-3 sm:px-6">
+        <div className="w-full max-w-7xl mx-auto flex items-center justify-between gap-3">
+          {/* Left Corner: 3-line tab (Navigation Drawer button) + Logo/Title */}
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <button
+              id="nav-drawer-toggle-btn"
+              onClick={() => setIsNavDrawerOpen(true)}
+              type="button"
+              className={`p-2 sm:px-3 sm:py-2 rounded-xl border flex items-center gap-2 transition-all cursor-pointer active:scale-95 shadow-sm font-sans text-xs font-bold shrink-0 ${
+                isLight
+                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400'
+                  : 'bg-[#070e24]/90 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+              }`}
+              title="Open Navigation Menu"
+              aria-label="Open Navigation Menu"
+            >
+              <Menu className="w-4 h-4 text-blue-500 shrink-0" />
+              <span className="hidden sm:inline font-mono">Menu</span>
+            </button>
+
+            {/* Brand Logo & Title */}
             <div
-              onClick={() => { setActiveTab('search'); setSearchQuery(''); setSearchResults(DEFAULT_PAGES); }}
+              onClick={handleResetToHome}
               className="flex items-center gap-2 cursor-pointer select-none group shrink-0 min-w-0"
               role="button"
               tabIndex={0}
+              title="Return to Home Screen"
             >
               <img
                 src="/logo.png"
                 alt="Isaac Search logo"
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover transition-transform group-hover:scale-105 shrink-0 shadow-sm"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl object-cover transition-transform group-hover:scale-105 shrink-0 shadow-sm"
               />
-              <h1 className={`text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight bg-clip-text text-transparent font-sans transition-all duration-300 truncate ${
+              <h1 className={`text-base sm:text-xl font-extrabold tracking-tight bg-clip-text text-transparent font-sans transition-all duration-300 truncate ${
                 isLight
                   ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700'
                   : 'bg-gradient-to-r from-white via-zinc-200 to-zinc-400'
               }`}>
                 Isaac Search
               </h1>
+              {activeTab !== 'search' && (
+                <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30 capitalize">
+                  {activeTab}
+                </span>
+              )}
             </div>
+          </div>
 
-            {/* Desktop-only Quick Jump / Command Palette Trigger - hidden on mobile */}
+          {/* Right Corner: Quick Jump, Settings Gear, Theme Toggle */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Quick Jump / Command Palette */}
             <button
               id="global-quick-jump-btn"
               onClick={() => {
@@ -7361,171 +7787,60 @@ export default function App() {
                 setSelectedPaletteIndex(0);
               }}
               type="button"
-              className={`hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 ${
+              className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all cursor-pointer active:scale-95 shadow-sm font-sans text-xs font-bold shrink-0 ${
                 isLight
-                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
-                  : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
+                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white'
               }`}
-              title="Open Command Palette (⌘K or Ctrl+K)"
+              title="Quick Jump (⌘K)"
             >
-              <Command className="w-4 h-4 text-blue-500" />
-              <span>Quick Jump</span>
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono leading-none ${isLight ? 'bg-slate-100 text-slate-500' : 'bg-slate-800 text-slate-400'}`}>
+              <Command className="w-3.5 h-3.5 text-blue-500" />
+              <span className="text-[11px]">Quick Jump</span>
+              <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${isLight ? 'bg-slate-100 text-slate-500' : 'bg-slate-800 text-slate-400'}`}>
                 ⌘K
               </span>
             </button>
 
-            {/* Top Right Controls: Settings & Theme Toggle */}
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <button
-                id="global-settings-btn"
-                onClick={() => setShowSettingsModal(true)}
-                type="button"
-                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 min-h-[38px] ${
-                  isLight
-                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
-                    : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
-                }`}
-                title="Open Settings & Privacy"
-                aria-label="Settings"
-              >
-                <Settings className="w-4 h-4 text-blue-500 shrink-0" />
-                <span className="hidden sm:inline">Settings</span>
-                {clearHistoryOnExit && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Clear History on Exit active" />
-                )}
-              </button>
+            {/* Settings Gear in corner */}
+            <button
+              id="global-settings-btn"
+              onClick={() => setShowSettingsModal(true)}
+              type="button"
+              className={`p-2 sm:px-3 sm:py-2 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow-sm font-sans text-xs font-bold shrink-0 ${
+                isLight
+                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400'
+                  : 'bg-[#070e24]/90 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+              }`}
+              title="Open Settings & Privacy"
+              aria-label="Settings"
+            >
+              <Settings className="w-4 h-4 text-blue-500 shrink-0" />
+              <span className="hidden sm:inline">Settings</span>
+              {clearHistoryOnExit && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Clear History on Exit active" />
+              )}
+            </button>
 
-              <button
-                id="global-theme-toggle-btn"
-                onClick={toggleTheme}
-                type="button"
-                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-full border transition-all cursor-pointer active:scale-95 shadow-md font-sans text-xs font-bold shrink-0 min-h-[38px] ${
-                  isLight
-                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-slate-100'
-                    : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 shadow-black/40'
-                }`}
-                title={isLight ? "Switch to Dark Mode" : "Switch to High-Contrast Light Mode"}
-                aria-label={isLight ? "Switch to Dark Mode" : "Switch to High-Contrast Light Mode"}
-              >
-                {isLight ? (
-                  <>
-                    <Moon className="w-4 h-4 text-slate-700 shrink-0" />
-                    <span className="hidden sm:inline">Dark</span>
-                  </>
-                ) : (
-                  <>
-                    <Sun className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span className="hidden sm:inline">Light</span>
-                  </>
-                )}
-              </button>
-            </div>
+            {/* Theme Toggle */}
+            <button
+              id="global-theme-toggle-btn"
+              onClick={toggleTheme}
+              type="button"
+              className={`p-2 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-sm font-sans text-xs font-bold shrink-0 ${
+                isLight
+                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  : 'bg-[#070e24]/90 border-slate-800 text-slate-300 hover:text-white'
+              }`}
+              title={isLight ? "Switch to Dark Mode" : "Switch to Light Mode"}
+              aria-label={isLight ? "Switch to Dark Mode" : "Switch to Light Mode"}
+            >
+              {isLight ? (
+                <Moon className="w-4 h-4 text-slate-700 shrink-0" />
+              ) : (
+                <Sun className="w-4 h-4 text-amber-400 shrink-0" />
+              )}
+            </button>
           </div>
-
-          {/* Navigation Controls (Circular and Rounder Cards) */}
-          <nav aria-label="Main navigation" className="flex items-center justify-start sm:justify-center gap-2 sm:gap-3.5 mt-1 w-full max-w-full overflow-x-auto no-scrollbar pb-2 sm:pb-0 px-2 sm:px-0">
-            <button 
-              id="nav-search-btn"
-              onClick={() => setActiveTab('search')}
-              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
-                activeTab === 'search' 
-                  ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
-                  : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-1.5 rounded-full transition-colors ${activeTab === 'search' ? 'bg-blue-500/15 text-blue-300' : 'bg-slate-900/60 text-slate-400'}`}>
-                <Search className="w-4 h-4" />
-              </div>
-              <span className="text-[11px] font-bold leading-tight font-sans text-center">Search</span>
-            </button>
-            <button 
-              id="nav-fireplexity-btn"
-              onClick={() => setActiveTab('fireplexity')}
-              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
-                activeTab === 'fireplexity' 
-                  ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
-                  : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-1.5 rounded-full transition-colors ${activeTab === 'fireplexity' ? 'bg-blue-500/15 text-blue-300' : 'bg-slate-900/60 text-slate-400'}`}>
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <span className="text-[11px] font-bold leading-tight font-sans text-center">Fireplexity</span>
-              <span className="absolute top-1.5 right-1.5 bg-blue-500 text-white font-mono text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                v2
-              </span>
-            </button>
-            <button 
-              id="nav-crawler-btn"
-              onClick={() => setActiveTab('crawler')}
-              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
-                activeTab === 'crawler' 
-                  ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
-                  : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-1.5 rounded-full transition-colors ${activeTab === 'crawler' ? 'bg-blue-500/15 text-blue-300' : 'bg-slate-900/60 text-slate-400'}`}>
-                <Database className="w-4 h-4" />
-              </div>
-              <span className="text-[11px] font-bold leading-tight font-sans text-center">Crawler</span>
-            </button>
-            <button 
-              id="nav-graph-btn"
-              onClick={() => setActiveTab('graph')}
-              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer shrink-0 ${
-                activeTab === 'graph' 
-                  ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
-                  : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-1.5 rounded-full transition-colors ${activeTab === 'graph' ? 'bg-blue-500/15 text-blue-300' : 'bg-slate-900/60 text-slate-400'}`}>
-                <Activity className="w-4 h-4" />
-              </div>
-              <span className="text-[11px] font-bold leading-tight font-sans text-center">Graph</span>
-            </button>
-            <button 
-              id="nav-collections-btn"
-              onClick={() => setActiveTab('collections')}
-              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
-                activeTab === 'collections' 
-                  ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
-                  : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-1.5 rounded-full transition-colors ${activeTab === 'collections' ? 'bg-blue-500/15 text-blue-300' : 'bg-slate-900/60 text-slate-400'}`}>
-                <Folder className="w-4 h-4" />
-              </div>
-              <span className="text-[11px] font-bold leading-tight font-sans text-center">Collections</span>
-              {collections.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 bg-blue-500 text-white font-mono text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                  {collections.reduce((acc, col) => acc + col.pages.length, 0)}
-                </span>
-              )}
-            </button>
-            <button 
-              id="nav-projects-btn"
-              onClick={() => setActiveTab('projects')}
-              className={`p-2 sm:p-3 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-1 sm:gap-1.5 w-18 h-18 sm:w-24 sm:h-24 select-none cursor-pointer relative shrink-0 ${
-                activeTab === 'projects' 
-                  ? 'border-blue-500 bg-blue-950/20 text-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.25)] scale-102' 
-                  : 'border-slate-800 bg-[#070e24]/40 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-1.5 rounded-full transition-colors ${activeTab === 'projects' ? 'bg-blue-500/15 text-blue-300' : 'bg-slate-900/60 text-slate-400'}`}>
-                <Briefcase className="w-4 h-4" />
-              </div>
-              <span className="text-[11px] font-bold leading-tight font-sans text-center">Projects</span>
-              {projects.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 bg-blue-500 text-white font-mono text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                  {projects.length}
-                </span>
-              )}
-            </button>
-          </nav>
-
-
-
         </div>
       </header>
 
@@ -7582,6 +7897,32 @@ export default function App() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* If on Home Landing Screen, render Hero Brand & Tagline */}
+            {!hasSearched && !activeVisualSearchImage && !searchQuery.trim() && (
+              <div className="flex flex-col items-center gap-3.5 text-center pt-3 sm:pt-8 pb-2 animate-fade-in select-none">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-1 bg-gradient-to-tr from-blue-600 via-sky-500 to-indigo-500 shadow-xl shadow-blue-500/20 flex items-center justify-center transition-transform hover:scale-105 duration-300">
+                  <img
+                    src="/logo.png"
+                    alt="Isaac Search logo"
+                    className="w-full h-full rounded-xl object-cover shadow-sm"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <h1 className={`text-3xl sm:text-5xl font-black tracking-tight font-sans bg-clip-text text-transparent ${
+                    isLight
+                      ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700'
+                      : 'bg-gradient-to-r from-white via-zinc-200 to-zinc-400'
+                  }`}>
+                    Isaac Search
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-400 font-medium max-w-md mx-auto leading-relaxed">
+                    Fast, privacy-first search engine, web crawler &amp; research intelligence.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Absolute Search Container */}
             <div ref={searchContainerRef} className="relative">
@@ -7789,6 +8130,23 @@ export default function App() {
                   </span>
                 )}
                 
+                {/* Visual Search (Camera) Button */}
+                <button
+                  type="button"
+                  id="visual-search-btn"
+                  onClick={() => setShowVisualSearchModal(true)}
+                  title="Search by image (Reverse Image Search)"
+                  className={`p-2.5 rounded-full transition-all flex items-center justify-center shrink-0 cursor-pointer ${
+                    activeVisualSearchImage
+                      ? 'bg-indigo-950/60 text-indigo-400 ring-2 ring-indigo-500/50'
+                      : isLight
+                      ? 'text-slate-500 hover:text-indigo-600 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-indigo-400 hover:bg-slate-900/60'
+                  }`}
+                >
+                  <Camera className="w-5 h-5" />
+                </button>
+
                 {/* Voice Search Trigger Button */}
                 <button
                   id="voice-search-btn"
@@ -7994,6 +8352,88 @@ export default function App() {
               </AnimatePresence>
             </div>
 
+            {!hasSearched && !activeVisualSearchImage && !searchQuery.trim() ? (
+              /* HOME SCREEN CONTENT: Trending Pills + News Below It */
+              <div className="flex flex-col gap-8 w-full animate-fade-in mt-1">
+                {/* Trending Pills */}
+                <div className="flex items-center justify-center flex-wrap gap-2 text-xs">
+                  <span className="text-[11px] font-mono text-slate-500 font-semibold uppercase tracking-wider">Trending:</span>
+                  {['Artificial Intelligence', 'FastAPI', 'James Webb Space', 'Quantum Computing', 'Privacy Tools', 'define serendipity'].map(topic => (
+                    <button
+                      key={topic}
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery(topic);
+                        handleSearch(topic);
+                      }}
+                      className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer active:scale-95 ${
+                        isLight
+                          ? 'bg-white border-slate-200 hover:border-blue-400 hover:text-blue-600 shadow-xs text-slate-700'
+                          : 'bg-[#070e24]/80 border-slate-800 hover:border-blue-500/50 hover:text-blue-300 text-slate-300 shadow-xs'
+                      }`}
+                    >
+                      {topic}
+                    </button>
+                  ))}
+                </div>
+
+                {/* News Section Below Search Bar (As requested by user!) */}
+                <div className="w-full pt-6 border-t border-slate-800/40 flex flex-col gap-4 text-left">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        <Newspaper className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h2 className="text-sm sm:text-base font-bold font-sans tracking-tight">Today's Headlines &amp; Tech News</h2>
+                        <p className="text-[11px] text-slate-400">Live verified stories &amp; breaking tech discussions</p>
+                      </div>
+                    </div>
+
+                    {/* Category Selector Pills */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {[
+                        { id: 'technology', label: 'Tech' },
+                        { id: 'ai', label: 'AI' },
+                        { id: 'science', label: 'Science' },
+                        { id: 'business', label: 'Business' }
+                      ].map(cat => (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setHomeNewsTopic(cat.id as any)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            homeNewsTopic === cat.id
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : isLight
+                              ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Live News Feed */}
+                  <NewsResultsView
+                    query={homeNewsTopic}
+                    isLight={isLight}
+                    safeSearchLevel={safeSearchLevel}
+                    onBookmark={(item) => {
+                      const targetCol = collections[0];
+                      if (targetCol) {
+                        handleAddPageToCollection(targetCol.id, item as PageItem);
+                        showToast(`Saved to "${targetCol.name}" folder`, 'success');
+                      }
+                    }}
+                    onNotify={showToast}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
             {/* Search Operators Active Bar (site:, filetype:, quotes, -negation) */}
             {activeSearchSyntax.hasOperators && (
               <div className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 bg-blue-950/30 border border-blue-500/20 rounded-xl text-xs -mt-1 select-none animate-fade-in">
@@ -8176,9 +8616,13 @@ export default function App() {
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
-                  className="bg-[#070e24]/95 border border-slate-805 rounded-2xl shadow-xl overflow-hidden -mt-4 border-slate-800"
+                  className={`rounded-2xl shadow-xl overflow-hidden -mt-4 border transition-all ${
+                    isLight 
+                      ? 'bg-white border-slate-300 shadow-slate-200/60 text-slate-800' 
+                      : 'bg-[#070e24]/95 border-slate-800 text-slate-200'
+                  }`}
                 >
-                  <div className="p-5 flex flex-col gap-4 divide-y divide-slate-800/60">
+                  <div className={`p-5 flex flex-col gap-4 divide-y ${isLight ? 'divide-slate-200' : 'divide-slate-800/60'}`}>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {/* Domain Input */}
                       <div className="flex flex-col gap-1.5">
@@ -8188,7 +8632,9 @@ export default function App() {
                           placeholder="e.g. ycombinator.com"
                           value={filterDomain}
                           onChange={(e) => setFilterDomain(e.target.value)}
-                          className="border border-slate-800 focus:ring-2 focus:ring-blue-950 focus:border-blue-500 bg-[#030712] text-slate-200 rounded-xl p-2.5 text-xs outline-none"
+                          className={`border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/30 ${
+                            isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'border-slate-800 bg-[#030712] text-slate-200'
+                          }`}
                          aria-label="e.g. ycombinator.com" />
                       </div>
 
@@ -8357,8 +8803,11 @@ export default function App() {
                       </div>
 
                       <button 
-                        onClick={() => handleSearch()}
-                        className="bg-blue-600 hover:bg-blue-505 text-white font-mono font-bold px-4 py-2 rounded-xl transition-all hover:bg-blue-500 shadow-lg shadow-blue-950/40"
+                        onClick={() => {
+                          setShowFilters(false);
+                          handleSearch();
+                        }}
+                        className="bg-blue-600 hover:bg-blue-500 text-white font-mono font-bold px-4 py-2 rounded-xl transition-all shadow-lg shadow-blue-950/40 cursor-pointer active:scale-95"
                       >
                         Apply Filters & Search
                       </button>
@@ -8367,6 +8816,51 @@ export default function App() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Active Visual Search Banner */}
+            {activeVisualSearchImage && (
+              <div className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
+                isLight ? 'bg-indigo-50 border-indigo-200 text-indigo-950' : 'bg-indigo-950/30 border-indigo-900/60 text-indigo-200'
+              }`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-lg overflow-hidden border border-indigo-500/40 shrink-0 shadow-sm bg-black/40">
+                    <img src={activeVisualSearchImage} alt="Visual search active target" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold font-sans flex items-center gap-1 text-indigo-400">
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Visual Search Active</span>
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300">
+                        Image Match Mode
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 truncate font-sans">
+                      Displaying web and visual results related to this image
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowVisualSearchModal(true)}
+                    className="px-2.5 py-1 text-xs font-bold bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 rounded-lg text-indigo-300 cursor-pointer transition-all"
+                  >
+                    Change Image
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearVisualSearch}
+                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer transition-all"
+                    title="Clear visual search filter"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Spell Correction Widget */}
             {spellcheck && (
@@ -8478,11 +8972,12 @@ export default function App() {
             </div>
 
             {/* Zero-Click Instant Answer Widget (DuckDuckGo style) */}
-            {searchQuery.trim() && (
+            {(searchQuery.trim() || activeVisualSearchImage) && (
               <InstantAnswerWidget
                 query={searchQuery}
                 isLight={isLight}
                 onSelectTag={handleToggleSearchTag}
+                activeVisualSearchImage={activeVisualSearchImage}
               />
             )}
 
@@ -8561,6 +9056,17 @@ export default function App() {
                         >
                           <Download className="w-3.5 h-3.5 text-blue-400" />
                           <span className="hidden sm:inline text-xs font-sans">PDF</span>
+                        </button>
+
+                        {/* Search Alerts & Saved Queries */}
+                        <button
+                          type="button"
+                          onClick={() => setShowSavedQueriesModal(true)}
+                          className="px-2.5 py-1.5 rounded-xl border border-slate-800 bg-[#070e24]/70 text-slate-400 hover:text-amber-300 hover:border-amber-500/40 transition-all text-xs flex items-center gap-1 active:scale-95 cursor-pointer"
+                          title="Manage Saved Queries & Search Alerts"
+                        >
+                          <Bell className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="hidden sm:inline text-xs font-sans">Alerts</span>
                         </button>
                       </div>
                     </div>
@@ -8759,7 +9265,9 @@ export default function App() {
                           ease: [0.25, 1, 0.5, 1],
                           layout: { duration: 0.28, ease: "easeInOut" }
                         }}
-                        className="bg-[#070e24]/90 border border-slate-800 hover:border-blue-500/50 p-5 rounded-2xl hover:shadow-[0_0_20px_rgba(37,99,235,0.15)] transition-[border-color,box-shadow,background-color] duration-200 flex flex-col gap-2.5 relative group"
+                        className={`bg-[#070e24]/90 border border-slate-800 hover:border-blue-500/50 rounded-2xl hover:shadow-[0_0_20px_rgba(37,99,235,0.15)] transition-[border-color,box-shadow,background-color] duration-200 flex flex-col relative group ${
+                          resultsDensity === 'compact' ? 'p-3.5 gap-1.5' : 'p-5 gap-2.5'
+                        }`}
                       >
                     {/* Cache and Metadata icons */}
                     <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
@@ -8859,11 +9367,17 @@ export default function App() {
                                   initial={{ opacity: 0, y: -10, scale: 0.95 }}
                                   animate={{ opacity: 1, y: 0, scale: 1 }}
                                   exit={{ opacity: 0, scale: 0.95 }}
-                                  className="absolute right-0 top-full mt-2 w-64 bg-[#091332] border border-slate-800 rounded-xl p-3 shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-50 flex flex-col gap-2.5 font-sans"
+                                  className={`absolute right-0 top-full mt-2 w-64 rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-2.5 font-sans border transition-all ${
+                                    isLight
+                                      ? 'bg-white border-slate-200 text-slate-800 shadow-slate-300/50'
+                                      : 'bg-[#091332] border-slate-800 text-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.8)]'
+                                  }`}
                                 >
-                                  <div className="text-xs font-bold tracking-wider text-slate-400 uppercase border-b border-slate-800/60 pb-1.5 flex items-center justify-between">
+                                  <div className={`text-xs font-bold tracking-wider uppercase border-b pb-1.5 flex items-center justify-between ${
+                                    isLight ? 'text-slate-600 border-slate-200' : 'text-slate-400 border-slate-800/60'
+                                  }`}>
                                     <span>Add to Collection</span>
-                                    <Bookmark className="w-3.5 h-3.5 text-blue-400" />
+                                    <Bookmark className="w-3.5 h-3.5 text-blue-500" />
                                   </div>
                                   
                                   <div className="flex flex-col gap-1 max-h-36 overflow-y-auto no-scrollbar py-0.5">
@@ -8882,16 +9396,16 @@ export default function App() {
                                           }}
                                           className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium text-left transition-colors cursor-pointer ${
                                             isSaved
-                                              ? 'bg-blue-950/50 border border-blue-500/20 text-blue-300 hover:bg-blue-950/70'
-                                              : 'hover:bg-slate-900 border border-transparent text-slate-300'
+                                              ? (isLight ? 'bg-blue-50 border border-blue-200 text-blue-700 font-semibold' : 'bg-blue-950/50 border border-blue-500/20 text-blue-300 hover:bg-blue-950/70')
+                                              : (isLight ? 'hover:bg-slate-100 border border-transparent text-slate-700' : 'hover:bg-slate-900 border border-transparent text-slate-300')
                                           }`}
                                         >
                                           <span className="truncate flex items-center gap-1.5">
-                                            <Folder className={`w-3.5 h-3.5 shrink-0 ${isSaved ? 'text-blue-400' : 'text-slate-500'}`} />
+                                            <Folder className={`w-3.5 h-3.5 shrink-0 ${isSaved ? 'text-blue-500' : 'text-slate-400'}`} />
                                             {col.name}
                                           </span>
                                           {isSaved && (
-                                            <span className="text-[9px] font-bold bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded font-mono">
+                                            <span className="text-[9px] font-bold bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded font-mono">
                                               Saved
                                             </span>
                                           )}
@@ -8899,11 +9413,11 @@ export default function App() {
                                       );
                                     })}
                                     {collections.length === 0 && (
-                                      <p className="text-[11px] text-slate-500 italic text-center py-2">No folders click below to make one!</p>
+                                      <p className="text-[11px] text-slate-400 italic text-center py-2">No folders click below to make one!</p>
                                     )}
                                   </div>
 
-                                  <div className="border-t border-slate-800/60 pt-2 flex flex-col gap-1.5 mt-1">
+                                  <div className={`border-t pt-2 flex flex-col gap-1.5 mt-1 ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
                                     <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider font-bold">New Folder Name</span>
                                     <div className="flex items-center gap-1.5">
                                       <input
@@ -8920,7 +9434,9 @@ export default function App() {
                                             }
                                           }
                                         }}
-                                        className="bg-[#030712] border border-slate-800 rounded-md p-1 px-2 text-xs text-slate-200 outline-none w-full"
+                                        className={`border rounded-md p-1 px-2 text-xs outline-none w-full ${
+                                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400' : 'bg-[#030712] border-slate-800 text-slate-200'
+                                        }`}
                                        aria-label="AI, Programming" />
                                       <button
                                         type="button"
@@ -9127,15 +9643,24 @@ export default function App() {
                     </div>
 
                     {/* Title hyperlink */}
-                    <h3 className="text-lg font-bold text-slate-100 group-hover:text-blue-300 transition-colors">
-                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1.5">
+                    <h3 className={`font-bold text-slate-100 group-hover:text-blue-300 transition-colors ${
+                      fontSizePreference === 'small' ? 'text-base' : fontSizePreference === 'large' ? 'text-xl' : 'text-lg'
+                    }`}>
+                      <a 
+                        href={item.url} 
+                        target={openInNewTab ? "_blank" : "_self"} 
+                        rel={openInNewTab ? "noopener noreferrer" : undefined} 
+                        className="hover:underline flex items-center gap-1.5"
+                      >
                         <HighlightText text={item.title} query={searchQuery} innerQuery={searchWithinQuery} />
-                        <LinkIcon className="w-4 h-4 text-slate-500 group-hover:text-blue-300 transition-colors" />
+                        <LinkIcon className="w-4 h-4 text-slate-500 group-hover:text-blue-300 transition-colors shrink-0" />
                       </a>
                     </h3>
 
                     {/* Extract Text Highlight Snippet */}
-                    <p className="text-sm text-slate-300 leading-relaxed font-sans">
+                    <p className={`text-slate-300 leading-relaxed font-sans ${
+                      fontSizePreference === 'small' ? 'text-xs' : fontSizePreference === 'large' ? 'text-base' : 'text-sm'
+                    }`}>
                       <HighlightText text={item.snippet} query={searchQuery} innerQuery={searchWithinQuery} />
                     </p>
 
@@ -9261,11 +9786,17 @@ export default function App() {
                                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                   animate={{ opacity: 1, y: 0, scale: 1 }}
                                   exit={{ opacity: 0, scale: 0.95 }}
-                                  className="absolute right-0 bottom-full mb-2 w-64 bg-[#091332] border border-slate-800 rounded-xl p-3 shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-50 flex flex-col gap-2.5 font-sans"
+                                  className={`absolute right-0 bottom-full mb-2 w-64 rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-2.5 font-sans border transition-all ${
+                                    isLight
+                                      ? 'bg-white border-slate-200 text-slate-800 shadow-slate-300/50'
+                                      : 'bg-[#091332] border-slate-800 text-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.8)]'
+                                  }`}
                                 >
-                                  <div className="text-xs font-bold tracking-wider text-slate-400 uppercase border-b border-slate-800/60 pb-1.5 flex items-center justify-between">
+                                  <div className={`text-xs font-bold tracking-wider uppercase border-b pb-1.5 flex items-center justify-between ${
+                                    isLight ? 'text-slate-600 border-slate-200' : 'text-slate-400 border-slate-800/60'
+                                  }`}>
                                     <span>Add to Collection</span>
-                                    <Bookmark className="w-3.5 h-3.5 text-blue-400" />
+                                    <Bookmark className="w-3.5 h-3.5 text-blue-500" />
                                   </div>
                                   
                                   <div className="flex flex-col gap-1 max-h-36 overflow-y-auto no-scrollbar py-0.5">
@@ -9284,16 +9815,16 @@ export default function App() {
                                           }}
                                           className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium text-left transition-colors cursor-pointer ${
                                             isSaved
-                                              ? 'bg-blue-950/50 border border-blue-500/20 text-blue-300 hover:bg-blue-950/70'
-                                              : 'hover:bg-slate-900 border border-transparent text-slate-305 text-slate-300'
+                                              ? (isLight ? 'bg-blue-50 border border-blue-200 text-blue-700 font-semibold' : 'bg-blue-950/50 border border-blue-500/20 text-blue-300 hover:bg-blue-950/70')
+                                              : (isLight ? 'hover:bg-slate-100 border border-transparent text-slate-700' : 'hover:bg-slate-900 border border-transparent text-slate-300')
                                           }`}
                                         >
                                           <span className="truncate flex items-center gap-1.5">
-                                            <Folder className={`w-3.5 h-3.5 shrink-0 ${isSaved ? 'text-blue-400' : 'text-slate-500'}`} />
+                                            <Folder className={`w-3.5 h-3.5 shrink-0 ${isSaved ? 'text-blue-500' : 'text-slate-400'}`} />
                                             {col.name}
                                           </span>
                                           {isSaved && (
-                                            <span className="text-[9px] font-bold bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded font-mono">
+                                            <span className="text-[9px] font-bold bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded font-mono">
                                               Saved
                                             </span>
                                           )}
@@ -9301,11 +9832,11 @@ export default function App() {
                                       );
                                     })}
                                     {collections.length === 0 && (
-                                      <p className="text-[11px] text-slate-500 italic text-center py-2">No folders click below to make one!</p>
+                                      <p className="text-[11px] text-slate-400 italic text-center py-2">No folders click below to make one!</p>
                                     )}
                                   </div>
 
-                                  <div className="border-t border-slate-800/60 pt-2 flex flex-col gap-1.5 mt-1">
+                                  <div className={`border-t pt-2 flex flex-col gap-1.5 mt-1 ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
                                     <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider font-bold">New Folder Name</span>
                                     <div className="flex items-center gap-1.5">
                                       <input
@@ -9322,7 +9853,9 @@ export default function App() {
                                             }
                                           }
                                         }}
-                                        className="bg-[#030712] border border-slate-800 rounded-md p-1 px-2 text-xs text-slate-200 outline-none w-full"
+                                        className={`border rounded-md p-1 px-2 text-xs outline-none w-full ${
+                                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400' : 'bg-[#030712] border-slate-800 text-slate-200'
+                                        }`}
                                        aria-label="AI, Programming" />
                                       <button
                                         type="button"
@@ -9332,9 +9865,9 @@ export default function App() {
                                             setNewFolderNameInline('');
                                           }
                                         }}
-                                        className="p-1 px-2 bg-blue-600 hover:bg-blue-550 border border-blue-700/50 text-white font-bold rounded-md font-sans text-xs cursor-pointer active:scale-95 transition-all text-center shrink-0"
+                                        className="bg-blue-600 hover:bg-blue-500 text-white p-1 rounded-md transition-all active:scale-95 cursor-pointer flex items-center justify-center shrink-0"
                                       >
-                                        Create
+                                        <Plus className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
                                   </div>
@@ -9496,6 +10029,17 @@ export default function App() {
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-950/60 text-blue-300 border border-blue-500/30">
                               Page {currentPage}
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSetPaginationMode(paginationMode === 'infinite' ? 'paged' : 'infinite')}
+                              className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-700/60 cursor-pointer flex items-center gap-1 transition-all"
+                              title="Click to toggle between Auto-Infinite Scroll and Paged buttons"
+                            >
+                              <span>Mode:</span>
+                              <span className={paginationMode === 'infinite' ? 'text-indigo-400' : 'text-blue-400'}>
+                                {paginationMode === 'infinite' ? '⚡ Infinite Scroll' : '📄 Paged'}
+                              </span>
+                            </button>
                           </div>
                           <span className="text-[11px] text-slate-400 font-sans">
                             {visibleResultsCount < filteredSearchResults.length
@@ -9815,6 +10359,24 @@ export default function App() {
               />
             )}
 
+            {/* Back to Home Button at bottom of search results */}
+            <div className="pt-6 pb-2 border-t border-slate-800/40 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={handleResetToHome}
+                className={`px-4 py-2 rounded-xl text-xs font-bold font-sans border transition-all cursor-pointer active:scale-95 flex items-center gap-2 ${
+                  isLight
+                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                    : 'bg-[#070e24] border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+                }`}
+              >
+                <Search className="w-3.5 h-3.5 text-blue-400" />
+                <span>Back to Isaac Home</span>
+              </button>
+            </div>
+          </>
+        )}
+
 
 
           </div>
@@ -9880,7 +10442,9 @@ export default function App() {
                     </div>
                     <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl flex flex-col gap-1 font-mono">
                       <span className="text-[10px] text-slate-400 uppercase font-bold">Fault Errors</span>
-                      <span className="text-sm font-bold text-red-600">{crawlerStatus.errors}</span>
+                      <span className={`text-sm font-bold ${crawlerStatus.errors > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {crawlerStatus.errors}
+                      </span>
                     </div>
                     <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl flex flex-col gap-1 font-mono col-span-2 md:col-span-1">
                       <span className="text-[10px] text-slate-400 uppercase font-bold">Started At</span>
@@ -13071,14 +13635,16 @@ export default function App() {
                   <Activity className="w-5 h-5 text-blue-400" />
                   Visual Crawl Link Graph
                 </h2>
-                <p className="text-xs text-slate-400">Interactive link layout rendering. Hover nodes for live cache preview, click to select pages, drag physically to align.</p>
+                <p className="text-xs text-slate-400">Interactive link topology rendering. Tap or hover nodes to preview details, click to inspect pages, drag to reposition.</p>
               </div>
 
               {/* Quick stats & Export Actions */}
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-3 bg-[#070e24]/80 border border-slate-800 p-2.5 rounded-xl font-mono text-xs text-slate-300 shadow-sm leading-none h-[38px]">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <div className={`flex items-center gap-2.5 sm:gap-3 border p-2 sm:p-2.5 rounded-xl font-mono text-xs shadow-sm leading-none h-[38px] shrink-0 ${
+                  isLight ? 'bg-white border-slate-300 text-slate-700' : 'bg-[#070e24]/80 border-slate-800 text-slate-300'
+                }`}>
                   <span>Nodes: <strong className="text-blue-400">{minBacklinks > 0 ? `${filteredGraphNodes.length}/${graphNodes.length}` : graphNodes.length}</strong></span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-800/85"></span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-slate-300' : 'bg-slate-800/85'}`}></span>
                   <span>Edges: <strong className="text-blue-400">{minBacklinks > 0 ? `${activeEdges.length}/${graphEdges.length}` : graphEdges.length}</strong></span>
                 </div>
 
@@ -13096,9 +13662,11 @@ export default function App() {
                       showToast("Restored domain classification color scheme.", "info");
                     }
                   }}
-                  className={`flex items-center gap-2 px-3.5 border rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg active:scale-95 ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 border rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg active:scale-95 shrink-0 ${
                     graphColorMode === 'impact'
                       ? 'bg-zinc-700 text-white border-zinc-400 shadow-zinc-950/60 ring-2 ring-zinc-500/50'
+                      : isLight
+                      ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                       : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white hover:bg-slate-800'
                   }`}
                   title="Toggle color-coding by 'Crawl Impact' (composite score of page authority, recency, and index confidence)"
@@ -13109,6 +13677,8 @@ export default function App() {
                   <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-extrabold ${
                     graphColorMode === 'impact'
                       ? 'bg-zinc-900/90 border border-zinc-400/40 text-zinc-200'
+                      : isLight
+                      ? 'bg-slate-100 border border-slate-300 text-slate-700'
                       : 'bg-slate-950 border border-slate-800 text-slate-400'
                   }`}>
                     {graphColorMode === 'impact' ? 'ON' : 'OFF'}
@@ -13121,26 +13691,30 @@ export default function App() {
                   name="clusters"
                   data-layout="clusters"
                   onClick={() => handleLayoutChange('clusters')}
-                  className={`flex items-center gap-2 px-3.5 border rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg active:scale-95 ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 border rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg active:scale-95 shrink-0 ${
                     graphLayout === 'clusters'
                       ? 'bg-blue-600 text-white border-blue-400 shadow-blue-950/50 ring-2 ring-blue-500/40'
+                      : isLight
+                      ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                       : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white hover:bg-slate-800'
                   }`}
                   title="Apply 'clusters' layout strategy: group graph nodes by domain using d3-force physics"
                   aria-label="Apply clusters layout strategy"
                 >
-                  <LayoutTemplate className="w-4 h-4 text-blue-300" />
+                  <LayoutTemplate className="w-4 h-4 text-blue-400" />
                   <span>Clusters</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-950/70 border border-blue-500/30 text-blue-200">Domain</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${isLight ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-blue-950/70 border border-blue-500/30 text-blue-200'}`}>Domain</span>
                 </button>
 
                 <button
                   type="button"
                   id="toggle-node-labels-btn"
                   onClick={() => setShowNodeLabels(prev => !prev)}
-                  className={`flex items-center gap-2 px-3.5 border rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg active:scale-95 ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 border rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg active:scale-95 shrink-0 ${
                     showNodeLabels
                       ? 'bg-blue-950/80 text-blue-300 border-blue-500/50 hover:bg-blue-900/80 shadow-blue-950/40'
+                      : isLight
+                      ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                       : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
                   }`}
                   title={showNodeLabels ? "Hide Node Labels (Prevent clutter on large graphs)" : "Show Node Labels"}
@@ -13153,22 +13727,24 @@ export default function App() {
                   type="button"
                   id="download-graph-svg-btn"
                   onClick={downloadGraphAsSVG}
-                  className="flex items-center gap-2 px-3.5 bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/30 rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg shadow-blue-950/40 active:scale-95"
+                  className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/30 rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg shadow-blue-950/40 active:scale-95 shrink-0"
                   title="Download Current Canvas State as SVG file"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Download SVG</span>
+                  <span>SVG</span>
                 </button>
 
                 <button
                   type="button"
                   id="download-graph-json-btn"
                   onClick={downloadGraphAsJSON}
-                  className="flex items-center gap-2 px-3.5 bg-slate-900 hover:bg-slate-800 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg shadow-blue-950/40 active:scale-95"
+                  className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 rounded-xl text-xs font-bold font-sans transition-all h-[38px] cursor-pointer shadow-lg active:scale-95 shrink-0 border ${
+                    isLight ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50' : 'bg-slate-900 border-blue-500/30 text-blue-300 hover:text-white hover:bg-slate-800'
+                  }`}
                   title="Download Current Graph Data as JSON file"
                 >
                   <FileCode className="w-4 h-4 text-emerald-400" />
-                  <span>Download JSON</span>
+                  <span>JSON</span>
                 </button>
               </div>
             </div>
@@ -13190,7 +13766,7 @@ export default function App() {
                 )}
                 
                 {/* Floating Map Search Overlay */}
-                <div className="absolute top-4 left-4 z-20 w-72 sm:w-80 bg-[#091332]/95 border border-slate-800/80 rounded-2xl p-3.5 shadow-[0_12px_45px_rgba(0,0,0,0.85)] backdrop-blur-md flex flex-col gap-2.5">
+                <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20 w-[calc(100%-1.5rem)] max-w-[270px] sm:max-w-xs bg-[#091332]/95 border border-slate-800/80 rounded-2xl p-3 sm:p-3.5 shadow-2xl backdrop-blur-md flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <Search className="w-3.5 h-3.5 text-blue-400" />
@@ -13256,13 +13832,32 @@ export default function App() {
                 </div>
 
                 {/* Floating Map Legend & Mode Toggle Overlay */}
-                <div className="absolute top-4 right-4 z-20 w-52 sm:w-60 bg-[#091332]/95 border border-slate-800/80 rounded-2xl p-3 shadow-[0_12px_45px_rgba(0,0,0,0.85)] backdrop-blur-md flex flex-col gap-2">
-                  <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Palette className="w-3.5 h-3.5 text-blue-400" />
-                      <span className="text-xs font-bold text-slate-200 font-sans">Visual Classification</span>
+                {isGraphLegendMinimized ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsGraphLegendMinimized(false)}
+                    className="absolute bottom-3 right-3 sm:bottom-auto sm:top-4 sm:right-4 z-20 px-3 py-1.5 rounded-xl bg-[#091332]/95 border border-slate-800 text-xs font-bold text-slate-200 flex items-center gap-1.5 shadow-2xl backdrop-blur-md hover:border-slate-700 cursor-pointer active:scale-95"
+                    title="Expand Visual Classification Legend"
+                  >
+                    <Palette className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Legend</span>
+                  </button>
+                ) : (
+                  <div className="absolute bottom-3 right-3 sm:bottom-auto sm:top-4 sm:right-4 z-20 w-48 sm:w-60 bg-[#091332]/95 border border-slate-800/80 rounded-2xl p-2.5 sm:p-3 shadow-[0_12px_45px_rgba(0,0,0,0.85)] backdrop-blur-md flex flex-col gap-2">
+                    <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Palette className="w-3.5 h-3.5 text-blue-400" />
+                        <span className="text-xs font-bold text-slate-200 font-sans">Visual Classification</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsGraphLegendMinimized(true)}
+                        className="text-slate-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-slate-800 cursor-pointer"
+                        title="Minimize legend"
+                      >
+                        –
+                      </button>
                     </div>
-                  </div>
 
                   {/* Segmented Control Mode Toggle */}
                   <div className="grid grid-cols-4 bg-[#02020a] p-1 rounded-xl border border-slate-800/60">
@@ -17914,6 +18509,36 @@ export default function App() {
           setStoredSafeSearch(lvl);
         }}
         onOpenClearTrace={() => setShowClearTraceModal(true)}
+        openInNewTab={openInNewTab}
+        onToggleOpenInNewTab={handleToggleOpenInNewTab}
+        resultsDensity={resultsDensity}
+        onSetResultsDensity={handleSetResultsDensity}
+        paginationMode={paginationMode}
+        onSetPaginationMode={handleSetPaginationMode}
+        fontSizePreference={fontSizePreference}
+        onSetFontSizePreference={handleSetFontSizePreference}
+      />
+
+      {/* Feature 4: Search Alerts & Saved Queries Modal */}
+      <SavedQueriesModal
+        isOpen={showSavedQueriesModal}
+        onClose={() => setShowSavedQueriesModal(false)}
+        currentQuery={searchQuery}
+        onRunQuery={(q) => {
+          setSearchQuery(q);
+          handleSearch(q);
+        }}
+        isLight={isLight}
+        onNotify={showToast}
+      />
+
+      {/* Feature 6: Reverse Image & Visual Search Modal */}
+      <VisualSearchModal
+        isOpen={showVisualSearchModal}
+        onClose={() => setShowVisualSearchModal(false)}
+        onPerformVisualSearch={handlePerformVisualSearch}
+        isLight={isLight}
+        onNotify={showToast}
       />
 
       {/* Mobile & Desktop Tag Filter Drawer / Bottom Sheet */}
