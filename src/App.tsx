@@ -63,6 +63,7 @@ import SearchTagFilterBar from './components/SearchTagFilterBar';
 import SettingsModal from './components/SettingsModal';
 import TldDomainCoverageSection from './components/TldDomainCoverageSection';
 import FireplexityTab from './components/FireplexityTab';
+import InAppStoryReaderModal, { StoryReaderItem } from './components/InAppStoryReaderModal';
 import {
   FireplexitySource,
   FireplexityImageItem,
@@ -73,6 +74,7 @@ import { downloadCollectionJsonArchive, downloadMasterCollectionsJsonArchive } f
 import { apiUrl, getBackendBaseUrl, isMobileOrNativeApp, setCustomServerUrl, getCustomServerUrl } from './utils/apiConfig';
 import { fetchClientSideWebResults } from './utils/clientSearchFallback';
 import { fetchClientSideImageResults } from './utils/clientImageFallback';
+import { stopSpeechImmediately, playSpeech, isSpeechActive, SPEECH_STOP_EVENT } from './utils/speechUtils';
 
 // Dynamic API base: resolves to deployed Cloud Run server URL in mobile/Capacitor, or relative /api in browser
 const API_BASE = apiUrl('/api');
@@ -1867,6 +1869,26 @@ export default function App() {
     }
   });
 
+  // Clean Reading View (declutters secondary metadata badges for visual clarity)
+  const [isCleanReadingMode, setIsCleanReadingMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('isaac_clean_reading_mode') === 'true';
+    } catch (_) {
+      return false;
+    }
+  });
+
+  const handleToggleCleanReadingMode = () => {
+    setIsCleanReadingMode(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('isaac_clean_reading_mode', String(next));
+      } catch (_) {}
+      showToast(next ? "Clean View enabled: metadata simplified" : "Detailed View restored", "info");
+      return next;
+    });
+  };
+
   const [paginationMode, setPaginationMode] = useState<'paged' | 'infinite'>(() => {
     try {
       const stored = localStorage.getItem('isaac_pagination_mode');
@@ -2538,7 +2560,9 @@ export default function App() {
   const [graphLayout, setGraphLayout] = useState<'sandbox' | 'orbit' | 'starburst' | 'clusters'>('sandbox');
   const [minBacklinks, setMinBacklinks] = useState<number>(0);
   const [showNodeLabels, setShowNodeLabels] = useState<boolean>(true);
-  const [isGraphLegendMinimized, setIsGraphLegendMinimized] = useState<boolean>(false);
+  const [isGraphLegendMinimized, setIsGraphLegendMinimized] = useState<boolean>(() => {
+    return typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+  });
 
   const filteredGraphNodes = useMemo(() => {
     return graphNodes.filter(node => node.backlinks >= minBacklinks);
@@ -2643,8 +2667,11 @@ export default function App() {
     });
 
     return Object.values(groups).map(g => {
-      const cx = g.count > 0 ? g.xSum / g.count : 320;
-      const cy = g.count > 0 ? g.ySum / g.count : 200;
+      const rawCx = g.count > 0 ? g.xSum / g.count : 320;
+      const rawCy = g.count > 0 ? g.ySum / g.count : 200;
+      // Clamp within 640x420 coordinate bounds to prevent clusters running off canvas edges
+      const cx = Math.max(90, Math.min(550, rawCx));
+      const cy = Math.max(80, Math.min(340, rawCy));
       let maxDist = 36;
       filteredGraphNodes.forEach(node => {
         const { domain } = resolveNodeDomainAndLanguage(node);
@@ -2653,11 +2680,13 @@ export default function App() {
           if (dist > maxDist) maxDist = dist;
         }
       });
+      // Clamp cluster radius so it doesn't expand past viewport margins
+      const clampedRadius = Math.min(130, maxDist);
       return {
         domain: g.domain,
         x: cx,
         y: cy,
-        radius: maxDist,
+        radius: clampedRadius,
         count: g.count,
         color: g.color
       };
@@ -2727,10 +2756,10 @@ export default function App() {
       
       domains.forEach((dom, idx) => {
         const angle = (idx * 2 * Math.PI) / (domains.length || 1);
-        const dist = domains.length > 1 ? 140 : 0;
+        const dist = domains.length > 1 ? 115 : 0;
         clusterCenters[dom] = {
-          x: centerX + Math.cos(angle) * dist,
-          y: centerY + Math.sin(angle) * dist
+          x: Math.max(100, Math.min(540, centerX + Math.cos(angle) * dist)),
+          y: Math.max(90, Math.min(320, centerY + Math.sin(angle) * dist))
         };
       });
 
@@ -2742,10 +2771,10 @@ export default function App() {
         domainCounts[dom] = count + 1;
 
         const angle = count * 1.35;
-        const radius = count === 0 ? 0 : 38 + count * 6;
+        const radius = count === 0 ? 0 : 34 + count * 5;
         targetMap.set(node.id, {
-          x: center.x + Math.cos(angle) * radius,
-          y: center.y + Math.sin(angle) * radius
+          x: Math.max(40, Math.min(600, center.x + Math.cos(angle) * radius)),
+          y: Math.max(40, Math.min(380, center.y + Math.sin(angle) * radius))
         });
       });
     }
@@ -3242,12 +3271,19 @@ export default function App() {
     } catch (_) {}
   }, [collections]);
 
-  // Clean up any speaking speech synthesis on unmount
+  // Clean up any speaking speech synthesis on unmount and listen to global speech stop events
   useEffect(() => {
+    const handleGlobalSpeechStop = () => {
+      setSpeakingPageId(null);
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(SPEECH_STOP_EVENT, handleGlobalSpeechStop);
+    }
     return () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(SPEECH_STOP_EVENT, handleGlobalSpeechStop);
       }
+      stopSpeechImmediately();
     };
   }, []);
 
@@ -3417,6 +3453,27 @@ export default function App() {
   const [expandedPages, setExpandedPages] = useState<Record<string, any>>({});
   const [isPageLoading, setIsPageLoading] = useState<Record<string, boolean>>({});
 
+  // In-App Story Reader Modal state (lets users read the full story right here in the app)
+  const [activeReaderStory, setActiveReaderStory] = useState<StoryReaderItem | null>(null);
+  const [isStoryReaderOpen, setIsStoryReaderOpen] = useState(false);
+
+  const handleOpenStoryReader = (item: PageItem | any) => {
+    setActiveReaderStory({
+      id: item.id,
+      url: item.url,
+      title: item.title,
+      snippet: item.snippet,
+      content: item.content || expandedPages[item.id]?.content,
+      paragraphs: expandedPages[item.id]?.paragraphs,
+      publisher: item.publisher || item.author,
+      author: item.author,
+      publishedAt: item.indexed_at || item.publishedAt,
+      tags: item.tags,
+      imageUrl: item.imageUrl
+    });
+    setIsStoryReaderOpen(true);
+  };
+
   const handleToggleExpand = async (docId: string, fallbackItem: PageItem) => {
     if (expandedDocId === docId) {
       setExpandedDocId(null);
@@ -3441,6 +3498,29 @@ export default function App() {
         throw new Error('Not found in database.');
       }
     } catch (_err) {
+      // Live reader extraction fallback for comprehensive in-app reading
+      try {
+        const readerRes = await fetch(`${API_BASE}/reader?url=${encodeURIComponent(fallbackItem.url)}&title=${encodeURIComponent(fallbackItem.title || '')}&snippet=${encodeURIComponent(fallbackItem.snippet || '')}`);
+        if (readerRes.ok) {
+          const readerData = await readerRes.json();
+          setExpandedPages(prev => ({
+            ...prev,
+            [docId]: {
+              url: fallbackItem.url,
+              title: fallbackItem.title,
+              snippet: fallbackItem.snippet,
+              content: readerData.content || fallbackItem.snippet,
+              paragraphs: readerData.paragraphs || [fallbackItem.snippet],
+              backlinks: (fallbackItem as any).backlinks || 0,
+              indexed_at: fallbackItem.indexed_at || new Date().toLocaleString(),
+              readingTimeMinutes: readerData.readingTimeMinutes || 2,
+              wordCount: readerData.wordCount || 120
+            }
+          }));
+          return;
+        }
+      } catch (_) {}
+
       // Fallback: Check if we have the item in the local list
       const localItem = pagesList.find(p => p.id === docId) || fallbackItem;
       const mockDoc = {
@@ -3448,6 +3528,7 @@ export default function App() {
         title: localItem.title,
         snippet: localItem.snippet,
         content: (localItem as any).content || localItem.snippet,
+        paragraphs: [(localItem as any).content || localItem.snippet],
         backlinks: (localItem as any).backlinks || 0,
         indexed_at: localItem.indexed_at || new Date().toLocaleString(),
       };
@@ -4589,33 +4670,47 @@ export default function App() {
   };
 
   const handleReadAloud = (item: PageItem) => {
-    if (speakingPageId === item.id) {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const isCurrentlyThisItem = speakingPageId === item.id;
+      const isAnyActive = isSpeechActive() || speakingPageId !== null;
+
+      // If the user clicks the button on the currently playing item (or clicks stop while active),
+      // stop IMMEDIATELY the very second they click!
+      if (isCurrentlyThisItem || (isAnyActive && !speakingPageId)) {
+        stopSpeechImmediately();
+        setSpeakingPageId(null);
+        showToast('Stopped reading aloud', 'info');
+        return;
       }
-      setSpeakingPageId(null);
-    } else {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        
-        const cleanTitle = item.title ? item.title.trim() : "";
-        const cleanSnippet = item.snippet ? item.snippet.trim() : "";
-        const textToSpeak = `${cleanTitle}. ${cleanSnippet}`;
-        
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        
-        utterance.onend = () => {
-          setSpeakingPageId(null);
-        };
-        utterance.onerror = () => {
-          setSpeakingPageId(null);
-        };
-        
+
+      // If another item was playing, halt it immediately before starting the new one
+      if (isAnyActive) {
+        stopSpeechImmediately();
+        setSpeakingPageId(null);
+      }
+
+      const cleanTitle = item.title ? item.title.trim() : "";
+      const cleanSnippet = item.snippet ? item.snippet.trim() : "";
+      const textToSpeak = `${cleanTitle}. ${cleanSnippet}`;
+
+      const started = playSpeech(textToSpeak, {
+        onStart: () => {
+          setSpeakingPageId(item.id);
+        },
+        onEnd: () => {
+          setSpeakingPageId(prev => (prev === item.id ? null : prev));
+        },
+        onError: () => {
+          setSpeakingPageId(prev => (prev === item.id ? null : prev));
+        }
+      });
+
+      if (started) {
         setSpeakingPageId(item.id);
-        window.speechSynthesis.speak(utterance);
-      } else {
-        alert('Speech Synthesis/Text-to-Speech is not supported in this browser.');
+        showToast('Reading aloud...', 'info');
       }
+    } else {
+      showToast('Speech synthesis is not supported in this browser.', 'error');
     }
   };
 
@@ -4663,6 +4758,26 @@ export default function App() {
     };
     
     setCollections(prev => [...prev, newCol]);
+  };
+
+  const handleCreateCollectionAndAddPage = (name: string, page: PageItem) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const existing = collections.find(col => col.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      handleAddPageToCollection(existing.id, page);
+      showToast(`Saved to folder "${existing.name}"`, "success");
+      return;
+    }
+    const newCol: SearchCollection = {
+      id: `col-${Date.now()}`,
+      name: trimmed,
+      description: "",
+      created_at: new Date().toUTCString(),
+      pages: [page]
+    };
+    setCollections(prev => [...prev, newCol]);
+    showToast(`Created folder "${trimmed}" and saved page!`, "success");
   };
 
   const handleDeleteCollection = (colId: string) => {
@@ -8429,6 +8544,7 @@ export default function App() {
                       }
                     }}
                     onNotify={showToast}
+                    onOpenStoryReader={handleOpenStoryReader}
                   />
                 </div>
               </div>
@@ -9027,6 +9143,22 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* Clean View Toggle (Declutters secondary technical indicators) */}
+                        <button
+                          type="button"
+                          onClick={handleToggleCleanReadingMode}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-sans transition-all cursor-pointer active:scale-95 ${
+                            isCleanReadingMode
+                              ? 'bg-blue-600/90 border-blue-400 text-white shadow-sm'
+                              : 'bg-[#070e24]/70 border-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={isCleanReadingMode ? "Clean View active: click to show detailed metadata" : "Switch to Clean View (reduces UI clutter)"}
+                          aria-label="Toggle clean reading view"
+                        >
+                          <Eye className="w-3 h-3 text-blue-400" />
+                          <span className="hidden sm:inline">{isCleanReadingMode ? 'Clean View' : 'Detailed'}</span>
+                        </button>
+
                         {/* Refine Tools Toggle (Search within results, web fallback) */}
                         <button
                           type="button"
@@ -9273,7 +9405,7 @@ export default function App() {
                     <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                       <span className="text-blue-400 font-mono truncate max-w-[200px] sm:max-w-md flex-1 min-w-[130px]">{item.url}</span>
                       <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                        {item.is_searxng_fallback && (
+                        {!isCleanReadingMode && item.is_searxng_fallback && (
                           <span
                             className="px-2 py-0.5 rounded bg-emerald-950/50 text-emerald-300 border border-emerald-500/40 font-mono text-[10px] font-bold leading-none flex items-center gap-1"
                             title={`Retrieved live via ${item.fallback_source || 'SearXNG Fallback'}${
@@ -9289,7 +9421,7 @@ export default function App() {
                             )}
                           </span>
                         )}
-                        {item.is_searxng_fallback && (
+                        {!isCleanReadingMode && item.is_searxng_fallback && (
                           item.auto_indexed ? (
                             <span
                               className="px-2 py-0.5 rounded bg-blue-950/50 text-blue-300 border border-blue-500/30 font-mono text-[10px] font-bold leading-none"
@@ -9309,7 +9441,7 @@ export default function App() {
                           )
                         )}
                         {/* Interactive BM25 Relevance Score Badge */}
-                        {((item.bm25_score !== undefined && item.bm25_score > 0) || (searchQuery.trim().length > 0)) && (
+                        {!isCleanReadingMode && ((item.bm25_score !== undefined && item.bm25_score > 0) || (searchQuery.trim().length > 0)) && (
                           <button
                             type="button"
                             onClick={() => setInspectingBm25Page(item)}
@@ -9367,7 +9499,7 @@ export default function App() {
                                   initial={{ opacity: 0, y: -10, scale: 0.95 }}
                                   animate={{ opacity: 1, y: 0, scale: 1 }}
                                   exit={{ opacity: 0, scale: 0.95 }}
-                                  className={`absolute right-0 top-full mt-2 w-64 rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-2.5 font-sans border transition-all ${
+                                  className={`absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-2.5rem)] rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-2.5 font-sans border transition-all ${
                                     isLight
                                       ? 'bg-white border-slate-200 text-slate-800 shadow-slate-300/50'
                                       : 'bg-[#091332] border-slate-800 text-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.8)]'
@@ -9429,7 +9561,7 @@ export default function App() {
                                           if (e.key === 'Enter') {
                                             e.preventDefault();
                                             if (newFolderNameInline.trim()) {
-                                              handleCreateCollection(newFolderNameInline);
+                                              handleCreateCollectionAndAddPage(newFolderNameInline, item);
                                               setNewFolderNameInline('');
                                             }
                                           }
@@ -9442,7 +9574,7 @@ export default function App() {
                                         type="button"
                                         onClick={() => {
                                           if (newFolderNameInline.trim()) {
-                                            handleCreateCollection(newFolderNameInline);
+                                            handleCreateCollectionAndAddPage(newFolderNameInline, item);
                                             setNewFolderNameInline('');
                                           }
                                         }}
@@ -9502,6 +9634,19 @@ export default function App() {
                                     <span>Site Options</span>
                                     <Globe className="w-3.5 h-3.5 text-blue-400" />
                                   </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenStoryReader(item);
+                                      setOpenThreeDotMenuPageId(null);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-semibold text-left text-blue-300 hover:bg-blue-950/60 hover:text-white transition-colors cursor-pointer border border-blue-500/20 bg-blue-950/20 mb-1"
+                                  >
+                                    <BookOpen className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                    Read story in app (Reader Mode)
+                                  </button>
 
                                   <button
                                     type="button"
@@ -9642,20 +9787,31 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Title hyperlink */}
-                    <h3 className={`font-bold text-slate-100 group-hover:text-blue-300 transition-colors ${
-                      fontSizePreference === 'small' ? 'text-base' : fontSizePreference === 'large' ? 'text-xl' : 'text-lg'
-                    }`}>
+                    {/* Title hyperlink with In-App Story Reader trigger */}
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className={`font-bold text-slate-100 group-hover:text-blue-300 transition-colors flex-1 ${
+                        fontSizePreference === 'small' ? 'text-base' : fontSizePreference === 'large' ? 'text-xl' : 'text-lg'
+                      }`}>
+                        <button 
+                          type="button"
+                          onClick={() => handleOpenStoryReader(item)}
+                          className="hover:underline flex items-center gap-1.5 text-left cursor-pointer text-slate-100 group-hover:text-blue-300 transition-colors"
+                          title="Read full story in app without leaving"
+                        >
+                          <HighlightText text={item.title} query={searchQuery} innerQuery={searchWithinQuery} />
+                        </button>
+                      </h3>
+
                       <a 
                         href={item.url} 
                         target={openInNewTab ? "_blank" : "_self"} 
                         rel={openInNewTab ? "noopener noreferrer" : undefined} 
-                        className="hover:underline flex items-center gap-1.5"
+                        className="p-1 rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800/40 transition-colors shrink-0 mt-0.5"
+                        title="Open external webpage in new tab"
                       >
-                        <HighlightText text={item.title} query={searchQuery} innerQuery={searchWithinQuery} />
-                        <LinkIcon className="w-4 h-4 text-slate-500 group-hover:text-blue-300 transition-colors shrink-0" />
+                        <ExternalLink className="w-3.5 h-3.5" />
                       </a>
-                    </h3>
+                    </div>
 
                     {/* Extract Text Highlight Snippet */}
                     <p className={`text-slate-300 leading-relaxed font-sans ${
@@ -9786,7 +9942,7 @@ export default function App() {
                                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                   animate={{ opacity: 1, y: 0, scale: 1 }}
                                   exit={{ opacity: 0, scale: 0.95 }}
-                                  className={`absolute right-0 bottom-full mb-2 w-64 rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-2.5 font-sans border transition-all ${
+                                  className={`absolute right-0 bottom-full mb-2 w-64 max-w-[calc(100vw-2.5rem)] rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-2.5 font-sans border transition-all ${
                                     isLight
                                       ? 'bg-white border-slate-200 text-slate-800 shadow-slate-300/50'
                                       : 'bg-[#091332] border-slate-800 text-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.8)]'
@@ -9848,7 +10004,7 @@ export default function App() {
                                           if (e.key === 'Enter') {
                                             e.preventDefault();
                                             if (newFolderNameInline.trim()) {
-                                              handleCreateCollection(newFolderNameInline);
+                                              handleCreateCollectionAndAddPage(newFolderNameInline, item);
                                               setNewFolderNameInline('');
                                             }
                                           }
@@ -9861,7 +10017,7 @@ export default function App() {
                                         type="button"
                                         onClick={() => {
                                           if (newFolderNameInline.trim()) {
-                                            handleCreateCollection(newFolderNameInline);
+                                            handleCreateCollectionAndAddPage(newFolderNameInline, item);
                                             setNewFolderNameInline('');
                                           }
                                         }}
@@ -9878,16 +10034,46 @@ export default function App() {
                         </div>
 
 
+                        {/* Direct Read Aloud Toggle Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleReadAloud(item);
+                          }}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-bold font-sans cursor-pointer transition-all active:scale-95 ${
+                            speakingPageId === item.id
+                              ? 'border-rose-500/60 bg-rose-950/40 text-rose-300 hover:bg-rose-900/40 shadow-sm'
+                              : 'border-slate-800 bg-[#070e24]/70 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={speakingPageId === item.id ? "Stop reading aloud" : "Read this result aloud"}
+                          aria-label={speakingPageId === item.id ? "Stop reading aloud" : "Read this result aloud"}
+                        >
+                          {speakingPageId === item.id ? (
+                            <>
+                              <VolumeX className="w-3 h-3 text-rose-400 animate-pulse" />
+                              <span className="text-rose-300">Stop</span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="w-3 h-3 text-blue-400" />
+                              <span>Read</span>
+                            </>
+                          )}
+                        </button>
+
                         <button
                           type="button"
                           id={`expand-btn-${item.id}`}
                           onClick={() => handleToggleExpand(item.id, item)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-800 bg-[#091332] hover:bg-slate-900 text-zinc-300 hover:text-white font-bold font-sans cursor-pointer transition-all active:scale-95 text-xs"
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-800 bg-[#091332] hover:bg-slate-900 text-zinc-300 hover:text-white font-bold font-sans cursor-pointer transition-all active:scale-95 text-xs shadow-xs"
+                          title="Expand story and read full information in app"
                         >
                           {isPageLoading[item.id] ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
-                              <span>Fetching...</span>
+                              <span>Loading Story...</span>
                             </>
                           ) : expandedDocId === item.id ? (
                             <>
@@ -9897,7 +10083,7 @@ export default function App() {
                           ) : (
                             <>
                               <BookOpen className="w-3 h-3 text-blue-400" />
-                              <span>Preview</span>
+                              <span>Read More</span>
                             </>
                           )}
                         </button>
@@ -9916,57 +10102,85 @@ export default function App() {
                           {isPageLoading[item.id] ? (
                             <div className="flex items-center justify-center py-6 gap-2 text-slate-500 font-mono text-xs">
                               <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                              <span>Retrieving body text from Firestore...</span>
+                              <span>Extracting full story for in-app reading...</span>
                             </div>
                           ) : expandedPages[item.id] ? (
                             <div className="flex flex-col gap-3">
                               <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/40 border border-slate-800/85 p-3 rounded-xl font-mono text-[10px] text-slate-450 border-slate-800/60">
                                 <div className="flex items-center gap-1">
-                                  <span className="font-bold text-slate-500">CHARACTERS:</span>
-                                  <span className="text-slate-200 font-bold">{(expandedPages[item.id].content || "").length}</span>
-                                </div>
-                                <div className="hidden sm:block w-1 h-1 rounded-full bg-slate-800"></div>
-                                <div className="flex items-center gap-1">
                                   <span className="font-bold text-slate-500">WORDS:</span>
                                   <span className="text-slate-200 font-bold">
-                                    {(expandedPages[item.id].content || "").trim().split(/\s+/).filter(Boolean).length}
+                                    {expandedPages[item.id].wordCount || (expandedPages[item.id].content || "").trim().split(/\s+/).filter(Boolean).length}
                                   </span>
                                 </div>
                                 <div className="hidden sm:block w-1 h-1 rounded-full bg-slate-800"></div>
                                 <div className="flex items-center gap-1">
-                                  <span className="font-bold text-slate-500">BACKLINKS:</span>
-                                  <span className="text-slate-200 font-bold">{expandedPages[item.id].backlinks || 0}</span>
+                                  <span className="font-bold text-slate-500">READING TIME:</span>
+                                  <span className="text-slate-200 font-bold">
+                                    {expandedPages[item.id].readingTimeMinutes || Math.max(1, Math.ceil(((expandedPages[item.id].content || "").trim().split(/\s+/).filter(Boolean).length) / 200))} min
+                                  </span>
                                 </div>
                                 <div className="hidden sm:block w-1 h-1 rounded-full bg-slate-800"></div>
                                 <div className="flex items-center gap-1">
-                                  <span className="font-bold text-blue-400">SOURCE:</span>
-                                  <span className="font-bold text-blue-300 bg-blue-950/40 border border-blue-900/60 rounded px-1.5 py-0.5 text-[8px]">
-                                    FIRESTORE
+                                  <span className="font-bold text-slate-500">STATUS:</span>
+                                  <span className="font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-900/60 rounded px-1.5 py-0.5 text-[8px]">
+                                    IN-APP READY
                                   </span>
                                 </div>
                               </div>
 
-                              <div className="flex flex-col gap-1.5">
-                                <span className="text-[10px] font-bold text-slate-500 uppercase font-mono tracking-wider">Indexed Content Preview</span>
-                                <div className="bg-[#02020e] border border-slate-800 text-slate-300 font-mono text-[11px] p-4 rounded-xl max-h-72 overflow-y-auto leading-relaxed shadow-inner whitespace-pre-wrap select-text">
-                                  <HighlightText text={expandedPages[item.id].content || "No raw parsed body available in Firestore for this page."} query={searchQuery} innerQuery={searchWithinQuery} />
+                              <div className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                  <span className="text-[11px] font-bold text-slate-400 uppercase font-mono tracking-wider flex items-center gap-1.5">
+                                    <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+                                    <span>Full Story & Information</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenStoryReader({ ...item, ...expandedPages[item.id] })}
+                                    className="px-2.5 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold font-sans rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                                    title="Open immersive distraction-free reader mode"
+                                  >
+                                    <Maximize2 className="w-3 h-3" />
+                                    <span>Full Reader Mode</span>
+                                  </button>
+                                </div>
+                                <div className="bg-[#02020e] border border-slate-800 text-slate-200 font-sans text-xs p-4 rounded-xl max-h-80 overflow-y-auto leading-relaxed shadow-inner select-text flex flex-col gap-3">
+                                  {expandedPages[item.id].paragraphs && expandedPages[item.id].paragraphs.length > 0 ? (
+                                    expandedPages[item.id].paragraphs.map((para: string, pIdx: number) => (
+                                      <p key={pIdx} className="leading-relaxed text-slate-300">
+                                        <HighlightText text={para} query={searchQuery} innerQuery={searchWithinQuery} />
+                                      </p>
+                                    ))
+                                  ) : (
+                                    <p className="leading-relaxed text-slate-300 whitespace-pre-wrap">
+                                      <HighlightText text={expandedPages[item.id].content || item.snippet || "Full text content."} query={searchQuery} innerQuery={searchWithinQuery} />
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               
-                              <div className="flex justify-end pt-1">
+                              <div className="flex items-center justify-between pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenStoryReader({ ...item, ...expandedPages[item.id] })}
+                                  className="text-xs text-blue-400 hover:text-blue-300 font-bold font-sans flex items-center gap-1 cursor-pointer"
+                                >
+                                  <span>Open in-app reader modal →</span>
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => setExpandedDocId(null)}
-                                  className="px-2.5 py-1 text-[10px] bg-[#091332] border border-slate-800 hover:bg-slate-900 text-slate-300 font-bold font-mono rounded-lg transition-all"
+                                  className="px-2.5 py-1 text-[10px] bg-[#091332] border border-slate-800 hover:bg-slate-900 text-slate-300 font-bold font-mono rounded-lg transition-all cursor-pointer"
                                 >
                                   COLLAPSE
                                 </button>
                               </div>
                             </div>
                           ) : (
-                            <div className="flex items-center justify-center p-4 bg-red-50 border border-red-100 rounded-xl gap-2 font-mono text-xs text-red-600">
+                            <div className="flex items-center justify-center p-4 bg-red-950/30 border border-red-900/50 rounded-xl gap-2 font-mono text-xs text-red-400">
                               <AlertCircle className="w-4 h-4 text-red-500" />
-                              <span>Error loading page document from Firestore.</span>
+                              <span>Could not retrieve document story.</span>
                             </div>
                           )}
                         </motion.div>
@@ -10342,6 +10556,7 @@ export default function App() {
                   }
                 }}
                 onNotify={showToast}
+                onOpenStoryReader={handleOpenStoryReader}
               />
             ) : (
               <VideosResultsView
@@ -13639,8 +13854,8 @@ export default function App() {
               </div>
 
               {/* Quick stats & Export Actions */}
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <div className={`flex items-center gap-2.5 sm:gap-3 border p-2 sm:p-2.5 rounded-xl font-mono text-xs shadow-sm leading-none h-[38px] shrink-0 ${
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 max-w-full">
+                <div className={`flex items-center gap-2 sm:gap-3 border p-1.5 sm:p-2.5 rounded-xl font-mono text-[11px] sm:text-xs shadow-sm leading-none h-[36px] sm:h-[38px] shrink-0 ${
                   isLight ? 'bg-white border-slate-300 text-slate-700' : 'bg-[#070e24]/80 border-slate-800 text-slate-300'
                 }`}>
                   <span>Nodes: <strong className="text-blue-400">{minBacklinks > 0 ? `${filteredGraphNodes.length}/${graphNodes.length}` : graphNodes.length}</strong></span>
@@ -13766,7 +13981,7 @@ export default function App() {
                 )}
                 
                 {/* Floating Map Search Overlay */}
-                <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20 w-[calc(100%-1.5rem)] max-w-[270px] sm:max-w-xs bg-[#091332]/95 border border-slate-800/80 rounded-2xl p-3 sm:p-3.5 shadow-2xl backdrop-blur-md flex flex-col gap-2">
+                <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20 w-auto max-w-[210px] sm:max-w-xs bg-[#091332]/95 border border-slate-800/80 rounded-2xl p-2.5 sm:p-3.5 shadow-2xl backdrop-blur-md flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <Search className="w-3.5 h-3.5 text-blue-400" />
@@ -13843,7 +14058,7 @@ export default function App() {
                     <span>Legend</span>
                   </button>
                 ) : (
-                  <div className="absolute bottom-3 right-3 sm:bottom-auto sm:top-4 sm:right-4 z-20 w-48 sm:w-60 bg-[#091332]/95 border border-slate-800/80 rounded-2xl p-2.5 sm:p-3 shadow-[0_12px_45px_rgba(0,0,0,0.85)] backdrop-blur-md flex flex-col gap-2">
+                  <div className="absolute bottom-3 right-3 sm:bottom-auto sm:top-4 sm:right-4 z-20 w-48 sm:w-56 max-w-[calc(100vw-3rem)] max-h-[46vh] sm:max-h-none overflow-y-auto bg-[#091332]/95 border border-slate-800/80 rounded-2xl p-2.5 sm:p-3 shadow-[0_12px_45px_rgba(0,0,0,0.85)] backdrop-blur-md flex flex-col gap-2 custom-scrollbar">
                     <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
                       <div className="flex items-center gap-1.5">
                         <Palette className="w-3.5 h-3.5 text-blue-400" />
@@ -14033,15 +14248,20 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+              )}
 
                 {/* SVG canvas stage overlay helper */}
                 <svg 
                   ref={svgRef}
                   width="100%" 
                   height="100%"
+                  viewBox="0 0 640 420"
+                  preserveAspectRatio="xMidYMid meet"
+                  role="region"
+                  aria-label="Interactive visual crawl link topology graph"
                   onMouseMove={handleSvgMouseMove}
                   onMouseUp={handleSvgMouseUp}
-                  className="select-none cursor-grab active:cursor-grabbing bg-slate-950"
+                  className="select-none cursor-grab active:cursor-grabbing bg-slate-950 w-full h-full overflow-hidden"
                 >
                   <defs>
                     <marker id="arrow" viewBox="0 0 10 10" refX="17" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
@@ -14058,7 +14278,7 @@ export default function App() {
                   <g transform={`translate(${zoomTransform.x}, ${zoomTransform.y}) scale(${zoomTransform.k})`}>
                     {/* Domain Clusters Group Background Indicators */}
                     {graphLayout === 'clusters' && domainClusters.map((cluster) => (
-                      <g key={`cluster-group-${cluster.domain}`} className="pointer-events-none select-none transition-opacity duration-300">
+                      <g key={`cluster-group-${cluster.domain}`} className="pointer-events-none select-none transition-opacity duration-300" aria-hidden="true">
                         {/* Domain cluster zone circular boundary */}
                         <circle
                           cx={cluster.x}
@@ -14072,7 +14292,7 @@ export default function App() {
                           strokeOpacity={0.45}
                         />
                         {/* Domain tag pill */}
-                        <g transform={`translate(${cluster.x}, ${cluster.y - cluster.radius - 12})`}>
+                        <g transform={`translate(${Math.max(60, Math.min(580, cluster.x))}, ${Math.max(25, cluster.y - cluster.radius - 12)})`}>
                           <rect
                             x={-cluster.domain.length * 3.5 - 14}
                             y={-10}
@@ -14161,6 +14381,16 @@ export default function App() {
                       return (
                         <g 
                           key={node.id}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Node: ${node.title}, domain ${resolveNodeDomainAndLanguage(node).domain}, ${node.backlinks} backlinks`}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedNode(node);
+                              showToast(`Selected node: ${node.title}`, "info");
+                            }
+                          }}
                           onMouseEnter={() => setHoveredNode(node)}
                           onMouseLeave={() => setHoveredNode(prev => prev?.id === node.id ? null : prev)}
                           style={{ opacity: nodeOpacity, transition: 'opacity 0.25s ease-in-out' }}
@@ -15858,10 +16088,15 @@ export default function App() {
                               </div>
 
                               <h4 className="text-sm font-bold text-slate-200 group-hover:text-blue-300 transition-colors flex items-center gap-1.5 leading-tight">
-                                <a href={item.url} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1.5 font-sans">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenStoryReader(item)}
+                                  className="hover:underline flex items-center gap-1.5 font-sans text-left cursor-pointer text-slate-200 group-hover:text-blue-300"
+                                  title="Read full story in app without leaving"
+                                >
                                   <HighlightText text={item.title} query={collectionsQuery} />
-                                  <LinkIcon className="w-3.5 h-3.5 text-slate-505 text-slate-500" />
-                                </a>
+                                  <BookOpen className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                </button>
                               </h4>
 
                               <p className="text-xs text-slate-400 leading-relaxed font-sans line-clamp-2">
@@ -15903,10 +16138,25 @@ export default function App() {
                                 <span>Saved on device cache</span>
                                 <div className="flex flex-wrap items-center gap-1">
                                   
-                                  {/* Read Aloud TTS button representing compact action */}
+                                  {/* In-App Story Reader button */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenStoryReader(item)}
+                                  className="p-1 px-2.5 rounded-md border border-blue-500/30 bg-blue-950/40 hover:bg-blue-900/40 text-blue-300 hover:text-white flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                                  title="Read the full story right here in the app"
+                                >
+                                  <BookOpen className="w-3 h-3 text-blue-400" />
+                                  <span>Read Story</span>
+                                </button>
+
+                                {/* Read Aloud TTS button representing compact action */}
                                   <button
                                     type="button"
-                                    onClick={() => handleReadAloud(item)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      handleReadAloud(item);
+                                    }}
                                     className={`p-1 px-2.5 rounded-md border flex items-center gap-1 cursor-pointer transition-all ${
                                       speakingPageId === item.id
                                         ? 'border-red-500/40 bg-red-950/20 text-red-400 hover:bg-red-950/30'
@@ -18705,6 +18955,22 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* In-App Story Reader Modal (Full story reading without directing to browser) */}
+      <InAppStoryReaderModal
+        isOpen={isStoryReaderOpen}
+        onClose={() => setIsStoryReaderOpen(false)}
+        story={activeReaderStory}
+        isLight={isLight}
+        onSaveToCollection={(storyItem) => {
+          const targetCol = collections[0];
+          if (targetCol) {
+            handleAddPageToCollection(targetCol.id, storyItem as PageItem);
+          }
+        }}
+        onNotify={showToast}
+        searchQuery={searchQuery}
+      />
     </div>
   );
 }

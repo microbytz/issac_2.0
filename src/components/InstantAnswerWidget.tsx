@@ -8,6 +8,7 @@ import {
   Clock,
   Timer,
   Volume2,
+  VolumeX,
   Copy,
   Check,
   ExternalLink,
@@ -67,6 +68,8 @@ import {
   fetchCityWeather,
   getWeatherConditionInfo
 } from '../utils/weatherService';
+
+import { stopSpeechImmediately, playSpeech, isSpeechActive, SPEECH_STOP_EVENT } from '../utils/speechUtils';
 
 import {
   generateSecurePassword,
@@ -197,12 +200,48 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({
     setTimeout(() => setCopiedKey(null), 1800);
   };
 
-  // Text to speech speech synthesis
-  const speakText = (text: string) => {
+  // Text to speech speech synthesis state
+  const [speakingTextKey, setSpeakingTextKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleGlobalSpeechStop = () => {
+      setSpeakingTextKey(null);
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(SPEECH_STOP_EVENT, handleGlobalSpeechStop);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(SPEECH_STOP_EVENT, handleGlobalSpeechStop);
+      }
+      stopSpeechImmediately();
+    };
+  }, []);
+
+  const speakText = (text: string, key?: string) => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      window.speechSynthesis.speak(u);
+      const activeKey = key || text;
+      const isCurrentlyThis = speakingTextKey === activeKey;
+      const isAnyActive = isSpeechActive() || speakingTextKey !== null;
+
+      // Stop immediately the second the user clicks the active button
+      if (isCurrentlyThis || (isAnyActive && !speakingTextKey)) {
+        stopSpeechImmediately();
+        setSpeakingTextKey(null);
+        return;
+      }
+
+      if (isAnyActive) {
+        stopSpeechImmediately();
+        setSpeakingTextKey(null);
+      }
+
+      playSpeech(text, {
+        onStart: () => setSpeakingTextKey(activeKey),
+        onEnd: () => setSpeakingTextKey(prev => (prev === activeKey ? null : prev)),
+        onError: () => setSpeakingTextKey(prev => (prev === activeKey ? null : prev))
+      });
+      setSpeakingTextKey(activeKey);
     }
   };
 
@@ -1011,13 +1050,25 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({
             </span>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => speakText(dictData.word)}
+                onClick={() => speakText(dictData.word, 'dict')}
                 type="button"
-                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer transition-colors font-sans font-bold"
-                title="Pronounce word audio"
+                className={`text-xs flex items-center gap-1 cursor-pointer transition-colors font-sans font-bold ${
+                  speakingTextKey === 'dict' ? 'text-rose-400 hover:text-rose-300' : 'text-blue-400 hover:text-blue-300'
+                }`}
+                title={speakingTextKey === 'dict' ? "Stop reading aloud" : "Pronounce word audio"}
+                aria-label={speakingTextKey === 'dict' ? "Stop reading aloud" : "Pronounce word audio"}
               >
-                <Volume2 className="w-3.5 h-3.5" />
-                <span>Listen</span>
+                {speakingTextKey === 'dict' ? (
+                  <>
+                    <VolumeX className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+                    <span>Stop</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>Listen</span>
+                  </>
+                )}
               </button>
               <button
                 onClick={() => handleCopy(`${dictData.word} (${dictData.partOfSpeech}): ${dictData.definition}`, 'dict')}
@@ -1118,13 +1169,25 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({
 
             <div className="flex items-center gap-3">
               <button
-                onClick={() => speakText(`${wikiEntity.title}. ${wikiEntity.description}`)}
+                onClick={() => speakText(`${wikiEntity.title}. ${wikiEntity.description}`, 'wiki')}
                 type="button"
-                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer transition-colors font-sans font-bold"
-                title="Read biography aloud"
+                className={`text-xs flex items-center gap-1 cursor-pointer transition-colors font-sans font-bold ${
+                  speakingTextKey === 'wiki' ? 'text-rose-400 hover:text-rose-300' : 'text-blue-400 hover:text-blue-300'
+                }`}
+                title={speakingTextKey === 'wiki' ? "Stop reading aloud" : "Read biography aloud"}
+                aria-label={speakingTextKey === 'wiki' ? "Stop reading aloud" : "Read biography aloud"}
               >
-                <Volume2 className="w-3.5 h-3.5" />
-                <span>Listen</span>
+                {speakingTextKey === 'wiki' ? (
+                  <>
+                    <VolumeX className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+                    <span>Stop</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>Listen</span>
+                  </>
+                )}
               </button>
 
               <a

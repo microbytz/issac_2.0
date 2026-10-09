@@ -26,11 +26,14 @@ import {
   CheckCircle,
   BookOpen,
   Layers,
-  Plus
+  Plus,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import TradingViewWidget from './TradingViewWidget';
 import { apiUrl } from '../utils/apiConfig';
+import { stopSpeechImmediately, playSpeech, isSpeechActive, SPEECH_STOP_EVENT } from '../utils/speechUtils';
 import {
   FireplexitySource,
   FireplexityNewsItem,
@@ -163,6 +166,53 @@ export default function FireplexityTab({
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [speakingTurnId, setSpeakingTurnId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleGlobalSpeechStop = () => {
+      setSpeakingTurnId(null);
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(SPEECH_STOP_EVENT, handleGlobalSpeechStop);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(SPEECH_STOP_EVENT, handleGlobalSpeechStop);
+      }
+      stopSpeechImmediately();
+    };
+  }, []);
+
+  const handleReadAloudTurn = (turn: FireplexityTurn) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const isCurrentlyThis = speakingTurnId === turn.id;
+      const isAnyActive = isSpeechActive() || speakingTurnId !== null;
+
+      // Stop immediately the second the user clicks the active button
+      if (isCurrentlyThis || (isAnyActive && !speakingTurnId)) {
+        stopSpeechImmediately();
+        setSpeakingTurnId(null);
+        onNotify('Stopped reading aloud', 'info');
+        return;
+      }
+
+      if (isAnyActive) {
+        stopSpeechImmediately();
+        setSpeakingTurnId(null);
+      }
+
+      const textToSpeak = turn.answer;
+      playSpeech(textToSpeak, {
+        onStart: () => setSpeakingTurnId(turn.id),
+        onEnd: () => setSpeakingTurnId(prev => (prev === turn.id ? null : prev)),
+        onError: () => setSpeakingTurnId(prev => (prev === turn.id ? null : prev))
+      });
+      setSpeakingTurnId(turn.id);
+      onNotify('Reading answer aloud...', 'info');
+    } else {
+      onNotify('Speech synthesis is not supported in this browser.', 'error');
+    }
+  };
 
   useEffect(() => {
     try {
@@ -743,27 +793,55 @@ export default function FireplexityTab({
                     )}
 
                     {turn.answer && (
-                      <button
-                        type="button"
-                        onClick={() => handleCopyAnswer(turn)}
-                        className={`px-2.5 py-1.5 rounded-xl border text-xs font-mono font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
-                          isLight
-                            ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                            : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
-                        }`}
-                      >
-                        {copiedTurnId === turn.id ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-zinc-200" />
-                            <span>Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copy</span>
-                          </>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleReadAloudTurn(turn)}
+                          className={`px-2.5 py-1.5 rounded-xl border text-xs font-mono font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
+                            speakingTurnId === turn.id
+                              ? 'border-rose-500/60 bg-rose-950/40 text-rose-300 hover:bg-rose-900/40 shadow-sm'
+                              : isLight
+                                ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                          }`}
+                          title={speakingTurnId === turn.id ? "Stop reading aloud" : "Read answer aloud"}
+                          aria-label={speakingTurnId === turn.id ? "Stop reading aloud" : "Read answer aloud"}
+                        >
+                          {speakingTurnId === turn.id ? (
+                            <>
+                              <VolumeX className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+                              <span className="text-rose-300">Stop</span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="w-3.5 h-3.5 text-blue-400" />
+                              <span>Read</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleCopyAnswer(turn)}
+                          className={`px-2.5 py-1.5 rounded-xl border text-xs font-mono font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
+                            isLight
+                              ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                          }`}
+                        >
+                          {copiedTurnId === turn.id ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-zinc-200" />
+                              <span>Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1361,33 +1439,34 @@ export default function FireplexityTab({
               e.preventDefault();
               handleRunSearch();
             }}
-            className={`sticky bottom-4 rounded-2xl border p-2 flex items-center gap-2 shadow-2xl backdrop-blur-md ${
+            className={`sticky bottom-4 rounded-2xl border p-1.5 sm:p-2 flex items-center gap-2 shadow-2xl backdrop-blur-md w-full min-w-0 ${
               isLight
                 ? 'bg-white/95 border-slate-300'
                 : 'bg-zinc-900/95 border-zinc-700/80'
             }`}
           >
-            <Sparkles className="w-5 h-5 ml-3 text-zinc-400 shrink-0" />
+            <Sparkles className="w-5 h-5 ml-2 sm:ml-3 text-zinc-400 shrink-0" />
             <input
               type="text"
               value={inputQuery}
               onChange={e => setInputQuery(e.target.value)}
-              placeholder="Ask a follow-up question or start a new deep search..."
-              className={`flex-1 bg-transparent border-none py-2 px-2 text-sm focus:outline-none ${
+              placeholder="Ask follow-up question or deep search..."
+              className={`flex-1 min-w-0 bg-transparent border-none py-2 px-2 text-xs sm:text-sm focus:outline-none ${
                 isLight ? 'text-slate-900 placeholder:text-slate-400' : 'text-zinc-100 placeholder:text-zinc-500'
               }`}
-             aria-label="Ask a follow-up question or start a new deep search" />
+             aria-label="Ask follow-up question or deep search" />
             <button
               type="submit"
               disabled={!inputQuery.trim() || isSearching}
-              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-40 shrink-0 border ${
+              className={`px-3 sm:px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-40 shrink-0 border transition-all ${
                 isLight
                   ? 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
                   : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border-zinc-700'
               }`}
             >
               {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-              <span>Ask Follow-Up</span>
+              <span className="hidden sm:inline">Ask Follow-Up</span>
+              <span className="sm:hidden">Ask</span>
             </button>
           </form>
         </div>
