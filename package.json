@@ -1,12 +1,12 @@
 {
-  "name": "react-example",
+  "name": "isaac-search-engine",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
-    "start": "node server.ts",
+    "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
@@ -15,28 +15,40 @@
     "build:android": "npm run build && npx cap sync"
   },
   "dependencies": {
-    "@capacitor/core": "^8.4.2",
+    "@capacitor-community/speech-recognition": "^7.0.1",
+    "@capacitor-community/text-to-speech": "^8.0.2",
+    "@capacitor/core": "^8.5.3",
+    "@capgo/capacitor-updater": "^8.52.1",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@types/d3": "^7.4.3",
     "@vitejs/plugin-react": "^5.0.4",
+    "compression": "^1.8.2",
     "d3": "^7.9.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "fflate": "^0.8.3",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "puppeteer-core": "^25.13.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-markdown": "^10.1.0",
     "recharts": "^3.9.1",
     "remark-gfm": "^4.0.1",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "vite": "^6.2.3"
   },
+  "overrides": {
+    "xcode": {
+      "uuid": "^11.1.1"
+    }
+  },
   "devDependencies": {
-    "@capacitor/android": "^8.4.2",
-    "@capacitor/cli": "^8.4.2",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@types/compression": "^1.8.1",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",

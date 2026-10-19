@@ -17,7 +17,8 @@ import {
   Flame,
   Camera,
   Bell,
-  Menu
+  Menu,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import BangsModal from './components/BangsModal';
@@ -75,6 +76,9 @@ import { apiUrl, getBackendBaseUrl, isMobileOrNativeApp, setCustomServerUrl, get
 import { fetchClientSideWebResults } from './utils/clientSearchFallback';
 import { fetchClientSideImageResults } from './utils/clientImageFallback';
 import { stopSpeechImmediately, playSpeech, isSpeechActive, SPEECH_STOP_EVENT } from './utils/speechUtils';
+import { Capacitor } from '@capacitor/core';
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
+import { SpeechRecognition as NativeSpeechRecognition } from '@capacitor-community/speech-recognition';
 
 // Dynamic API base: resolves to deployed Cloud Run server URL in mobile/Capacitor, or relative /api in browser
 const API_BASE = apiUrl('/api');
@@ -114,6 +118,14 @@ interface PageItem {
   fallback_source?: string;
   searxng_engines?: string[];
   auto_indexed?: boolean;
+  rich?: {
+    type: string;
+    name?: string;
+    rating?: number;
+    rating_count?: number;
+    date_published?: string;
+    price?: string;
+  };
 }
 
 interface WhooshKeywordSuggestion {
@@ -1693,6 +1705,9 @@ export default function App() {
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const paletteInputRef = useRef<HTMLInputElement>(null);
+  // Monotonic id for search/image requests — responses from superseded
+  // requests are discarded so stale results can't overwrite newer searches.
+  const searchRequestIdRef = useRef(0);
 
   // Custom Site Actions (3-dot) states
   const [excludedDomains, setExcludedDomains] = useState<string[]>([]);
@@ -1810,6 +1825,7 @@ export default function App() {
   // Voice Search states
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(() => {
+    if (Capacitor.isNativePlatform()) return true; // native plugin availability checked below
     return typeof window !== 'undefined' && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
   });
 
@@ -2146,9 +2162,9 @@ export default function App() {
     if (searchWithinQuery.trim()) {
       const innerQ = searchWithinQuery.toLowerCase().trim();
       finalFiltered = tagFiltered.filter(p => 
-        p.title.toLowerCase().includes(innerQ) || 
-        p.snippet.toLowerCase().includes(innerQ) || 
-        p.url.toLowerCase().includes(innerQ)
+        (p.title || '').toLowerCase().includes(innerQ) || 
+        (p.snippet || '').toLowerCase().includes(innerQ) || 
+        (p.url || '').toLowerCase().includes(innerQ)
       );
     }
 
@@ -2524,11 +2540,16 @@ export default function App() {
   // Common Crawl Open Data state
   const [ccDomain, setCcDomain] = useState('news.ycombinator.com');
   const [ccLimit, setCcLimit] = useState(50);
-  const [ccResults, setCcResults] = useState<Array<{ url: string; timestamp: string; mime: string; status: string }>>([]);
+  const [ccResults, setCcResults] = useState<Array<{
+    url: string; timestamp: string; mime: string; status: string;
+    filename?: string; offset?: number; length?: number; digest?: string;
+  }>>([]);
   const [ccLoading, setCcLoading] = useState(false);
   const [ccError, setCcError] = useState<string | null>(null);
   const [ccSelectedUrls, setCcSelectedUrls] = useState<string[]>([]);
-  const [ccImportStatus, setCcImportStatus] = useState<{ success: boolean; added: number; skipped: number } | null>(null);
+  const [ccImportStatus, setCcImportStatus] = useState<{
+    success: boolean; added: number; skipped: number; mode?: 'warc' | 'seeds';
+  } | null>(null);
   const [ccImporting, setCcImporting] = useState(false);
   const [ccFilterText, setCcFilterText] = useState('');
   const [seedsList, setSeedsList] = useState<Array<{ id: string; url: string; domain: string; source: string; created_at: number }>>([]);
@@ -3199,8 +3220,9 @@ export default function App() {
         if (sessionCached) {
           const parsed = JSON.parse(sessionCached);
           if (Array.isArray(parsed)) {
-            setSearchHistory(parsed);
-            localStorage.setItem('isaac_history', JSON.stringify(parsed));
+            const strs = parsed.filter((x): x is string => typeof x === 'string');
+            setSearchHistory(strs);
+            localStorage.setItem('isaac_history', JSON.stringify(strs));
             loaded = true;
           }
         }
@@ -3210,8 +3232,11 @@ export default function App() {
         try {
           const cachedHistory = localStorage.getItem('isaac_history');
           if (cachedHistory) {
-            setSearchHistory(JSON.parse(cachedHistory));
-            loaded = true;
+            const parsed = JSON.parse(cachedHistory);
+            if (Array.isArray(parsed)) {
+              setSearchHistory(parsed.filter((x): x is string => typeof x === 'string'));
+              loaded = true;
+            }
           }
         } catch (_) {}
       }
@@ -3457,7 +3482,63 @@ export default function App() {
   const [activeReaderStory, setActiveReaderStory] = useState<StoryReaderItem | null>(null);
   const [isStoryReaderOpen, setIsStoryReaderOpen] = useState(false);
 
+  // Report a result click to the engine (fire-and-forget beacon so it survives
+  // navigation). Drives click-feedback ranking on the server.
+  const recordResultClick = (item: PageItem | any) => {
+    try {
+      const url = item?.url;
+      if (!url || typeof url !== 'string') return;
+      // URLs shown above the clicked result — the ranker learns "clicked beat
+      // skipped" preference pairs from these.
+      const idx = filteredSearchResults.findIndex((r: any) => r?.url === url);
+      const above = idx > 0
+        ? filteredSearchResults.slice(0, idx).map((r: any) => r?.url).filter(Boolean).slice(-10)
+        : [];
+      const payload = JSON.stringify({ q: searchQuery, url, above });
+      const endpoint = `${API_BASE}/search/click`;
+      const blob = new Blob([payload], { type: 'application/json' });
+      const sent = typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(endpoint, blob);
+      if (!sent) {
+        fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true
+        }).catch(() => {});
+      }
+    } catch (_) {}
+  };
+
+  // OTA live update — on native builds, confirm the current bundle is healthy
+  // (required or the updater rolls back), then fetch the server's bundle
+  // version and stage a newer one for the next launch via .next().
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await CapacitorUpdater.notifyAppReady();
+        const res = await fetch(`${API_BASE}/app/version`, { cache: 'no-store' });
+        if (!res.ok || cancelled) return;
+        const meta = await res.json();
+        if (!meta?.version || meta.version === 'dev' || !meta.url) return;
+        const cur = await CapacitorUpdater.current();
+        if (cur?.bundle?.version === meta.version) return;
+        const downloaded = await CapacitorUpdater.download({
+          url: meta.url,
+          version: meta.version,
+          checksum: meta.checksum
+        });
+        if (!cancelled) {
+          await CapacitorUpdater.next({ id: downloaded.id });
+        }
+      } catch (_) {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const handleOpenStoryReader = (item: PageItem | any) => {
+    recordResultClick(item);
     setActiveReaderStory({
       id: item.id,
       url: item.url,
@@ -3798,22 +3879,48 @@ export default function App() {
     setCcImportStatus(null);
     let apiSuccess = false;
     try {
+      // If the search results carry WARC pointers, ingest the archived page
+      // content directly instead of just seeding the URLs for a live crawl.
+      const selectedRecords = ccResults.filter(
+        r => ccSelectedUrls.includes(r.url) && r.filename && typeof r.offset === 'number'
+      );
       const response = await fetch(`${API_BASE}/crawler/common-crawl/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls: ccSelectedUrls })
+        body: JSON.stringify(
+          selectedRecords.length > 0 ? { records: selectedRecords } : { urls: ccSelectedUrls }
+        )
       });
       const contentType = response.headers.get("content-type");
       if (response.ok && contentType && contentType.includes("application/json")) {
         const data = await response.json();
-        setCcImportStatus({
-          success: true,
-          added: data.added_count,
-          skipped: data.skipped_count
-        });
-        apiSuccess = true;
-        // Reload active seeds list
-        fetchSeeds();
+        if (data.job) {
+          // WARC ingest is async — poll until the job finishes.
+          let job = data.job;
+          while (job.status === 'running') {
+            await new Promise(r => setTimeout(r, 1500));
+            const jobRes = await fetch(`${API_BASE}/crawler/common-crawl/jobs/${job.id}`);
+            if (!jobRes.ok) break;
+            job = (await jobRes.json()).job || job;
+          }
+          setCcImportStatus({
+            success: true,
+            added: job.indexed || 0,
+            skipped: (job.skipped || 0) + (job.errors || 0),
+            mode: 'warc'
+          });
+          apiSuccess = true;
+        } else if (data.added_count !== undefined) {
+          setCcImportStatus({
+            success: true,
+            added: data.added_count,
+            skipped: data.skipped_count,
+            mode: 'seeds'
+          });
+          apiSuccess = true;
+          // Reload active seeds list
+          fetchSeeds();
+        }
       }
     } catch (_) {
       // Quietly continue to fallback
@@ -3888,6 +3995,7 @@ export default function App() {
   };
 
   const fetchImages = async (queryStr: string) => {
+    const requestId = searchRequestIdRef.current;
     setIsImagesLoading(true);
     setImagePage(1);
     setVisibleImagesCount(8);
@@ -3896,6 +4004,7 @@ export default function App() {
       const contentType = response.headers.get('content-type');
       if (response.ok && contentType && contentType.includes('application/json')) {
         const data = await response.json();
+        if (requestId !== searchRequestIdRef.current) return;
         setImageResults(data || []);
       } else {
         throw new Error('Image search endpoint unreached.');
@@ -3904,15 +4013,19 @@ export default function App() {
       // Backend unreached (static deploy / offline): query open image APIs directly.
       try {
         const directImages = await fetchClientSideImageResults(queryStr, 1);
+        if (requestId !== searchRequestIdRef.current) return;
         if (directImages.length > 0) {
           setImageResults(directImages);
           return;
         }
       } catch (_) {}
+      if (requestId !== searchRequestIdRef.current) return;
       setImageResults([]);
       showToast('Image search is unavailable right now. Please try again.', 'error');
     } finally {
-      setIsImagesLoading(false);
+      if (requestId === searchRequestIdRef.current) {
+        setIsImagesLoading(false);
+      }
     }
   };
 
@@ -3932,6 +4045,7 @@ export default function App() {
     if (!queryToUse) return;
     setIsLoadingMoreImages(true);
     const nextPage = imagePage + 1;
+    const requestId = searchRequestIdRef.current;
 
     try {
       let fetchedImgs: ImageItem[] = [];
@@ -3953,6 +4067,7 @@ export default function App() {
         } catch (_) {}
       }
 
+      if (requestId !== searchRequestIdRef.current) return;
       const existingUrls = new Set(imageResults.map(img => img.url));
       const newUniqueImgs = fetchedImgs.filter(img => img.url && !existingUrls.has(img.url));
 
@@ -4044,8 +4159,20 @@ export default function App() {
     return Array.from(set).slice(0, 8);
   };
 
+  // Only opens http(s) URLs in a new tab — blocks javascript:/data:/file: URLs
+  // that could arrive through search results or crafted links.
+  const openExternalUrl = (url: string) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+      const win = window.open(url, '_blank', 'noopener');
+      if (!win) window.location.href = url;
+    } catch (_) {}
+  };
+
   const handleSearch = async (queryStr: string = searchQuery, bypassState = false, overrideDomain?: string, forceFallback = false) => {
     if (!queryStr.trim()) return;
+    const requestId = ++searchRequestIdRef.current;
 
     // 0. DuckDuckGo !bangs detection & immediate dispatch
     const bangData = parseBangQuery(queryStr);
@@ -4057,11 +4184,7 @@ export default function App() {
         prefix: bangData.rawBang || bangData.bang.prefix
       });
       showToast(`⚡ !bang: Opening ${bangData.bang.name} (${bangData.bang.prefix})...`, 'info');
-      try {
-        window.open(bangData.redirectUrl, '_blank');
-      } catch (_) {
-        window.location.href = bangData.redirectUrl;
-      }
+      openExternalUrl(bangData.redirectUrl);
       return;
     }
 
@@ -4127,6 +4250,7 @@ export default function App() {
       const contentType = response.headers.get('content-type');
       if (response.ok && contentType && contentType.includes('application/json')) {
         const data = await response.json();
+        if (requestId !== searchRequestIdRef.current) return;
         const rawResults: PageItem[] = Array.isArray(data.results) ? data.results : [];
 
         // Also include any custom client-side pages from pagesList that match the query and aren't yet in rawResults
@@ -4183,11 +4307,7 @@ export default function App() {
           const directTarget = enrichedResults[0];
           showToast(`Direct jumping to ${directTarget.title || directTarget.url}...`, 'info');
           setTimeout(() => {
-            try {
-              window.open(directTarget.url, '_blank');
-            } catch (_) {
-              window.location.href = directTarget.url;
-            }
+            if (requestId === searchRequestIdRef.current) openExternalUrl(directTarget.url);
           }, 350);
         }
 
@@ -4200,6 +4320,7 @@ export default function App() {
         throw new Error('Backend unreached, using fast local search matching.');
       }
     } catch (e) {
+      if (requestId !== searchRequestIdRef.current) return;
       // Local Client Query Engine & Direct Open Metasearch Fallback (for mobile & offline resilience)
       try {
         const lowerQ = queryStr.toLowerCase();
@@ -4371,11 +4492,7 @@ export default function App() {
           const directTarget = processedResults[0];
           showToast(`Direct jumping to ${directTarget.title || directTarget.url}...`, 'info');
           setTimeout(() => {
-            try {
-              window.open(directTarget.url, '_blank');
-            } catch (_) {
-              window.location.href = directTarget.url;
-            }
+            if (requestId === searchRequestIdRef.current) openExternalUrl(directTarget.url);
           }, 350);
         }
         
@@ -4437,9 +4554,11 @@ export default function App() {
       // 2. Wipe search history and persistence
       setSearchHistory([]);
       try {
-        localStorage.removeItem('search_history');
+        localStorage.removeItem('isaac_history');
+        sessionStorage.removeItem('isaac_history_session_cache');
         localStorage.removeItem('isaac_region_filter');
       } catch (_) {}
+      fetch(`${API_BASE}/history?session_id=${sessionId}`, { method: 'DELETE' }).catch(() => {});
 
       // 3. Wipe suggestions and autocomplete states
       setSearchSuggestions([]);
@@ -4670,7 +4789,7 @@ export default function App() {
   };
 
   const handleReadAloud = (item: PageItem) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if ((typeof window !== 'undefined' && 'speechSynthesis' in window) || Capacitor.isNativePlatform()) {
       const isCurrentlyThisItem = speakingPageId === item.id;
       const isAnyActive = isSpeechActive() || speakingPageId !== null;
 
@@ -5097,12 +5216,64 @@ export default function App() {
           // ignore cleanup error
         }
       }
+      if (Capacitor.isNativePlatform()) {
+        NativeSpeechRecognition.stop().catch(() => {});
+      }
     };
   }, []);
 
-  const toggleListening = () => {
-    const SpeechRecognitionClass = typeof window !== 'undefined' 
-      ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) 
+  // Verify native speech-recognition availability once on startup
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      NativeSpeechRecognition.available()
+        .then(r => setSpeechSupported(r.available))
+        .catch(() => {});
+    }
+  }, []);
+
+  const toggleListening = async () => {
+    // Native path: Android/iOS WebView has no Web Speech Recognition API at all,
+    // so route through the Capacitor speech-recognition plugin (native dialog).
+    if (Capacitor.isNativePlatform()) {
+      if (isListening) {
+        try { await NativeSpeechRecognition.stop(); } catch (_) {}
+        setIsListening(false);
+        return;
+      }
+      try {
+        const { available } = await NativeSpeechRecognition.available();
+        if (!available) {
+          setSpeechSupported(false);
+          showToast("Voice search is not available on this device.", "info");
+          return;
+        }
+        const perm = await NativeSpeechRecognition.requestPermissions();
+        if (perm.speechRecognition !== 'granted') {
+          showToast("Microphone access was denied. Please allow microphone permission to use voice search.", "error");
+          return;
+        }
+        setIsListening(true);
+        const result = await NativeSpeechRecognition.start({
+          language: 'en-US',
+          maxResults: 1,
+          prompt: 'Say your search query',
+          popup: true,
+          partialResults: false
+        });
+        setIsListening(false);
+        const transcript = result.matches?.[0];
+        if (transcript) {
+          setSearchQuery(transcript);
+          handleSearchRef.current(transcript);
+        }
+      } catch (err) {
+        setIsListening(false);
+      }
+      return;
+    }
+
+    const SpeechRecognitionClass = typeof window !== 'undefined'
+      ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
       : null;
 
     if (!SpeechRecognitionClass) {
@@ -5236,11 +5407,11 @@ export default function App() {
     }
 
     // 3. Check search history
-    const histMatch = historyList.find(h => h.toLowerCase().startsWith(clean) && h.toLowerCase() !== clean);
+    const histMatch = historyList.find(h => typeof h === 'string' && h.toLowerCase().startsWith(clean) && h.toLowerCase() !== clean);
     if (histMatch) return histMatch;
 
     // 4. Check curated suggestion pool
-    const poolMatch = SUGGESTION_POOL.find(s => s.toLowerCase().startsWith(clean) && s.toLowerCase() !== clean);
+    const poolMatch = SUGGESTION_POOL.find(s => typeof s === 'string' && s.toLowerCase().startsWith(clean) && s.toLowerCase() !== clean);
     if (poolMatch) return poolMatch;
 
     // 5. Check keywords, tags, titles in indexed pages
@@ -5251,12 +5422,12 @@ export default function App() {
           ? (p.keywords as string).split(',').map((k: string) => k.trim())
           : [];
       for (const kw of kwList) {
-        if (kw.toLowerCase().startsWith(clean) && kw.toLowerCase() !== clean) return kw;
+        if (typeof kw === 'string' && kw.toLowerCase().startsWith(clean) && kw.toLowerCase() !== clean) return kw;
       }
-      for (const tag of p.tags || []) {
-        if (tag.toLowerCase().startsWith(clean) && tag.toLowerCase() !== clean) return tag;
+      for (const tag of Array.isArray(p.tags) ? p.tags : []) {
+        if (typeof tag === 'string' && tag.toLowerCase().startsWith(clean) && tag.toLowerCase() !== clean) return tag;
       }
-      if (p.title && p.title.toLowerCase().startsWith(clean) && p.title.toLowerCase() !== clean) {
+      if (typeof p.title === 'string' && p.title.toLowerCase().startsWith(clean) && p.title.toLowerCase() !== clean) {
         return p.title;
       }
     }
@@ -5301,7 +5472,8 @@ export default function App() {
           if (res.ok) {
             const data = await res.json();
             if (Array.isArray(data.suggestions)) {
-              data.suggestions.forEach((term: string) => {
+              data.suggestions.forEach((term: unknown) => {
+                if (typeof term !== 'string') return;
                 const clean = term.trim();
                 const key = clean.toLowerCase();
                 if (clean && !suggestionsMap.has(key)) {
@@ -5331,6 +5503,7 @@ export default function App() {
               : [];
 
           kwList.forEach((kw) => {
+            if (typeof kw !== 'string') return;
             const clean = kw.trim();
             const key = clean.toLowerCase();
             if (clean && key.includes(lowerQuery) && !suggestionsMap.has(key)) {
@@ -5344,7 +5517,8 @@ export default function App() {
           });
 
           // Index Tags
-          (page.tags || []).forEach((tag) => {
+          (Array.isArray(page.tags) ? page.tags : []).forEach((tag) => {
+            if (typeof tag !== 'string') return;
             const clean = tag.trim();
             const key = clean.toLowerCase();
             if (clean && key.includes(lowerQuery) && !suggestionsMap.has(key)) {
@@ -5358,7 +5532,7 @@ export default function App() {
           });
 
           // Page Titles
-          if (page.title) {
+          if (typeof page.title === 'string' && page.title) {
             const titleLower = page.title.toLowerCase();
             if (titleLower.includes(lowerQuery) && !suggestionsMap.has(titleLower)) {
               suggestionsMap.set(titleLower, {
@@ -5386,6 +5560,7 @@ export default function App() {
 
         // 4. Also check recent history items if matching
         searchHistory.forEach((hist) => {
+          if (typeof hist !== 'string') return;
           const clean = hist.trim();
           const key = clean.toLowerCase();
           if (clean && key.includes(lowerQuery) && !suggestionsMap.has(key)) {
@@ -5894,13 +6069,13 @@ export default function App() {
           body: JSON.stringify(newPage)
         });
         if (response.ok) {
-          setPagesList([newPage, ...pagesList]);
+          setPagesList(prev => [newPage, ...prev]);
           setIndexSuccess(true);
         } else {
           throw new Error('API server unavailable. Added to sandbox environment.');
         }
       } catch (_) {
-        setPagesList([newPage, ...pagesList]);
+        setPagesList(prev => [newPage, ...prev]);
         const domain = newUrl.replace('https://', '').replace('http://', '').split('/')[0];
         const newNode: GraphNode = {
           id: newPage.id,
@@ -7994,14 +8169,17 @@ export default function App() {
                     <span className="w-1 bg-red-400 rounded-full animate-pulse h-4" />
                   </div>
 
-                  <button 
-                    onClick={() => { 
+                  <button
+                    onClick={() => {
                       if (recognitionRef.current) {
                         try {
                           recognitionRef.current.stop();
                         } catch {
                           // ignore
                         }
+                      }
+                      if (Capacitor.isNativePlatform()) {
+                        NativeSpeechRecognition.stop().catch(() => {});
                       }
                       setIsListening(false);
                     }}
@@ -8046,10 +8224,15 @@ export default function App() {
                   ? 'bg-white/95 border border-slate-300 hover:border-slate-400 focus-within:ring-4 focus-within:ring-blue-100 focus-within:border-blue-500' 
                   : 'bg-[#070e24]/90 border border-slate-800 hover:border-slate-700/80 focus-within:ring-4 focus-within:ring-blue-950/40 focus-within:border-blue-500/80'
               }`}>
-                <Search className={`w-5 h-5 ml-3 shrink-0 ${isLight ? 'text-slate-400' : 'text-slate-500'}`} />
-                <input 
+                <input
                   ref={searchInputRef}
                   type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  enterKeyHint="search"
+                  inputMode="search"
                   placeholder="Ask anything or enter site queries (try 'fastapi', 'firestore', 'whoosh')..."
                   value={searchQuery}
                   onChange={(e) => {
@@ -8180,7 +8363,7 @@ export default function App() {
                     }
                   }}
                   onFocus={() => setShowSuggestions(true)}
-                  className={`flex-1 bg-transparent border-none py-2 px-1 text-base focus:outline-none min-w-0 ${
+                  className={`flex-1 bg-transparent border-none py-3 px-2 text-lg focus:outline-none min-w-0 ${
                     isLight 
                       ? 'text-slate-800 placeholder:text-slate-400' 
                       : 'text-slate-100 placeholder:text-slate-500'
@@ -8218,7 +8401,7 @@ export default function App() {
                       }
                     }}
                     title="Click or press Tab to autocomplete"
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-medium rounded-lg select-none mr-1.5 transition-all cursor-pointer active:scale-95 ${
+                    className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-medium rounded-lg select-none mr-1.5 transition-all cursor-pointer active:scale-95 ${
                       isLight 
                         ? 'text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100' 
                         : 'text-blue-300 bg-blue-950/60 border border-blue-500/30 hover:bg-blue-900/60'
@@ -8251,7 +8434,7 @@ export default function App() {
                   id="visual-search-btn"
                   onClick={() => setShowVisualSearchModal(true)}
                   title="Search by image (Reverse Image Search)"
-                  className={`p-2.5 rounded-full transition-all flex items-center justify-center shrink-0 cursor-pointer ${
+                  className={`p-1.5 rounded-full transition-all flex items-center justify-center shrink-0 cursor-pointer ${
                     activeVisualSearchImage
                       ? 'bg-indigo-950/60 text-indigo-400 ring-2 ring-indigo-500/50'
                       : isLight
@@ -8259,7 +8442,7 @@ export default function App() {
                       : 'text-slate-400 hover:text-indigo-400 hover:bg-slate-900/60'
                   }`}
                 >
-                  <Camera className="w-5 h-5" />
+                  <Camera className="w-4 h-4" />
                 </button>
 
                 {/* Voice Search Trigger Button */}
@@ -8267,24 +8450,24 @@ export default function App() {
                   id="voice-search-btn"
                   onClick={toggleListening}
                   title={isListening ? "Stop listening" : "Search with your voice"}
-                  className={`p-2.5 rounded-full transition-all relative flex items-center justify-center shrink-0 ${
-                    isListening 
-                      ? 'bg-red-950/40 text-red-400 ring-2 ring-red-900/50 animate-pulse' 
+                  className={`p-1.5 rounded-full transition-all relative flex items-center justify-center shrink-0 ${
+                    isListening
+                      ? 'bg-red-950/40 text-red-400 ring-2 ring-red-900/50 animate-pulse'
                       : speechSupported
-                        ? isLight 
-                          ? 'text-slate-500 hover:text-blue-600 hover:bg-slate-100' 
-                          : 'text-slate-400 hover:text-blue-400 hover:bg-slate-900/60' 
+                        ? isLight
+                          ? 'text-slate-500 hover:text-blue-600 hover:bg-slate-100'
+                          : 'text-slate-400 hover:text-blue-400 hover:bg-slate-900/60'
                         : 'text-slate-600 cursor-not-allowed opacity-55'
                   }`}
                   disabled={!speechSupported}
                 >
                   {isListening ? (
                     <>
-                      <MicOff className="w-5 h-5" />
+                      <MicOff className="w-4 h-4" />
                       <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full animate-ping" />
                     </>
                   ) : (
-                    <Mic className="w-5 h-5" />
+                    <Mic className="w-4 h-4" />
                   )}
                 </button>
 
@@ -8306,19 +8489,9 @@ export default function App() {
                   </button>
                 )}
 
-                <button 
-                  id="main-search-btn"
-                  onClick={() => {
-                    setShowSuggestions(false);
-                    handleSearch();
-                  }}
-                  disabled={isSearching}
-                  aria-label="Search"
-                  title="Search"
-                  className="bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 text-white p-2.5 rounded-full transition-all duration-300 shadow-[0_0_15px_rgba(37,99,235,0.35)] flex items-center justify-center shrink-0 cursor-pointer active:scale-95 disabled:opacity-50"
-                >
-                  {isSearching ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
-                </button>
+                {isSearching && (
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0 mr-1" />
+                )}
               </div>
 
               {/* Dynamic Debounced Suggestions Dropdown */}
@@ -9799,13 +9972,21 @@ export default function App() {
                           title="Read full story in app without leaving"
                         >
                           <HighlightText text={item.title} query={searchQuery} innerQuery={searchWithinQuery} />
+                          {item.rich && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/20 shrink-0" title={`Structured data: ${item.rich.type}${item.rich.date_published ? ` · ${item.rich.date_published.slice(0, 10)}` : ''}`}>
+                              {item.rich.rating
+                                ? `★ ${item.rich.rating}${item.rich.rating_count ? ` (${item.rich.rating_count})` : ''}`
+                                : item.rich.price || item.rich.type}
+                            </span>
+                          )}
                         </button>
                       </h3>
 
-                      <a 
-                        href={item.url} 
-                        target={openInNewTab ? "_blank" : "_self"} 
-                        rel={openInNewTab ? "noopener noreferrer" : undefined} 
+                      <a
+                        href={item.url}
+                        target={openInNewTab ? "_blank" : "_self"}
+                        rel={openInNewTab ? "noopener noreferrer" : undefined}
+                        onClick={() => recordResultClick(item)}
                         className="p-1 rounded-lg text-slate-500 hover:text-blue-400 hover:bg-slate-800/40 transition-colors shrink-0 mt-0.5"
                         title="Open external webpage in new tab"
                       >
@@ -10439,7 +10620,7 @@ export default function App() {
                               id={`image-result-${idx}`}
                               whileHover={{ scale: 1.02 }}
                               className="bg-[#070e24]/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xs hover:shadow-[0_0_15px_rgba(37,99,235,0.15)] transition-all flex flex-col group relative cursor-pointer"
-                              onClick={() => window.open(img.url, '_blank')}
+                              onClick={() => openExternalUrl(img.url)}
                             >
                               <div className="aspect-square bg-slate-950 overflow-hidden relative">
                                 <img 
@@ -11041,8 +11222,10 @@ export default function App() {
                           {ccImportStatus.success ? 'Import Complete!' : 'Import Failed'}
                         </span>
                         <span className={`text-xs ${ccImportStatus.success ? 'text-emerald-700' : 'text-red-700'}`}>
-                          {ccImportStatus.success 
-                            ? `Successfully added ${ccImportStatus.added} new crawl seeds. Skipped ${ccImportStatus.skipped} duplicate/already indexed links.`
+                          {ccImportStatus.success
+                            ? ccImportStatus.mode === 'warc'
+                              ? `Indexed ${ccImportStatus.added} pages directly from the Common Crawl archive. ${ccImportStatus.skipped} records were thin/failed.`
+                              : `Successfully added ${ccImportStatus.added} new crawl seeds. Skipped ${ccImportStatus.skipped} duplicate/already indexed links.`
                             : 'An error occurred during the seed database insertion payload transfer.'}
                         </span>
                       </div>
@@ -11082,7 +11265,7 @@ export default function App() {
                             ) : (
                               <Plus className="w-3 h-3" />
                             )}
-                            <span>Import Seeds</span>
+                            <span>{ccImporting ? 'Indexing…' : 'Import & Index'}</span>
                           </button>
                         </div>
                       </div>
@@ -18142,7 +18325,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-lg bg-[#090927] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.9)] overflow-hidden z-50 font-sans"
+              className="relative w-full max-w-lg max-h-[85vh] flex flex-col bg-[#090927] border border-slate-800 rounded-3xl p-4 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.9)] overflow-hidden z-50 font-sans"
             >
               <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
               <div className="absolute -bottom-32 -right-32 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -18167,7 +18350,7 @@ export default function App() {
               </div>
 
               {/* Shortcuts content lists */}
-              <div className="flex flex-col gap-6 relative text-sm">
+              <div className="flex flex-col gap-6 relative text-sm flex-1 min-h-0 overflow-y-auto pr-1">
                 
                 {/* Section 1: Navigation Core */}
                 <div>

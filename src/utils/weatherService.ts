@@ -400,12 +400,12 @@ export async function fetchCityWeather(cityQuery: string, signal?: AbortSignal):
       daily.time.slice(0, 5).forEach((dateStr: string, idx: number) => {
         const d = new Date(dateStr + 'T12:00:00');
         const dayLabel = idx === 0 ? 'Today' : weekdays[d.getDay()] || 'Day';
-        const code = daily.weather_code[idx] || 0;
-        const maxC = Math.round(daily.temperature_2m_max[idx] || tempC);
-        const minC = Math.round(daily.temperature_2m_min[idx] || tempC - 5);
+        const code = daily.weather_code[idx] ?? 0;
+        const maxC = Math.round(daily.temperature_2m_max[idx] ?? tempC);
+        const minC = Math.round(daily.temperature_2m_min[idx] ?? (tempC - 5));
         const maxF = Math.round((maxC * (9 / 5)) + 32);
         const minF = Math.round((minC * (9 / 5)) + 32);
-        const pChance = daily.precipitation_probability_max ? Math.round(daily.precipitation_probability_max[idx] || 0) : 0;
+        const pChance = daily.precipitation_probability_max ? Math.round(daily.precipitation_probability_max[idx] ?? 0) : 0;
 
         forecastItems.push({
           dayName: dayLabel,
@@ -420,6 +420,19 @@ export async function fetchCityWeather(cityQuery: string, signal?: AbortSignal):
       });
     }
 
+    // Open-Meteo returns the queried city's IANA timezone (`timezone=auto`), so
+    // "local time" must be rendered in that zone, not the viewer's.
+    let cityLocalTime: string;
+    try {
+      cityLocalTime = new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: typeof forecastData.timezone === 'string' ? forecastData.timezone : undefined
+      });
+    } catch (_) {
+      cityLocalTime = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    }
+
     return {
       city: resolvedCity,
       country: resolvedCountry,
@@ -429,12 +442,12 @@ export async function fetchCityWeather(cityQuery: string, signal?: AbortSignal):
       feelsLikeF,
       condition: condInfo.condition,
       weatherCode,
-      humidity: Math.round(curr.relative_humidity_2m || 50),
-      windSpeedKph: Math.round(curr.wind_speed_10m || 10),
-      windSpeedMph: Math.round((curr.wind_speed_10m || 10) * 0.621371),
+      humidity: Math.round(curr.relative_humidity_2m ?? 50),
+      windSpeedKph: Math.round(curr.wind_speed_10m ?? 10),
+      windSpeedMph: Math.round((curr.wind_speed_10m ?? 10) * 0.621371),
       precipitationChance: forecastItems[0]?.precipChance || 0,
       uvIndex: 5,
-      localTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      localTime: cityLocalTime,
       forecast: forecastItems,
       isLive: true
     };

@@ -20,6 +20,7 @@ export function useNotebookAutosave(
   // attribute edits to the right project.
   const projectIdRef = useRef(projectId);
   const baselineRef = useRef(initialNotes);
+  const savingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flush = (id: string | null) => {
     if (id && localNotesRef.current !== baselineRef.current) {
@@ -55,7 +56,8 @@ export function useNotebookAutosave(
         setIsSaving(true);
         flush(projectId);
         setLastSaved(new Date());
-        setTimeout(() => setIsSaving(false), 1000);
+        if (savingTimeoutRef.current) clearTimeout(savingTimeoutRef.current);
+        savingTimeoutRef.current = setTimeout(() => setIsSaving(false), 1000);
       }
     }, 5000);
 
@@ -80,6 +82,7 @@ export function useNotebookAutosave(
     return () => {
       window.removeEventListener('beforeunload', handleSaveOnExit);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (savingTimeoutRef.current) clearTimeout(savingTimeoutRef.current);
       handleSaveOnExit();
     };
   }, []);

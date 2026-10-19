@@ -1,15 +1,23 @@
 /**
  * speechUtils.ts
  * High-performance, zero-latency Web Speech API controller.
- * 
+ *
  * Solves:
  * 1. Audio buffering lag in Chromium/WebKit where speech keeps playing after cancel().
  * 2. V8 garbage collection bug where SpeechSynthesisUtterance is destroyed mid-speech.
  * 3. Instant, deterministic cancellation the exact millisecond the user clicks "Stop".
+ *
+ * On native platforms (Capacitor Android/iOS) the WebView's speechSynthesis API
+ * exists but produces no audio, so all speech is routed through the native
+ * @capacitor-community/text-to-speech plugin instead.
  */
+
+import { Capacitor } from '@capacitor/core';
+import { TextToSpeech } from '@capacitor-community/text-to-speech';
 
 let activeUtterance: SpeechSynthesisUtterance | null = null;
 let stopCleanupTimer: any = null;
+let nativeSpeaking = false;
 
 // Cross-component speech stop notification event
 export const SPEECH_STOP_EVENT = 'isaac:speech_stopped';
@@ -20,6 +28,17 @@ export const SPEECH_STOP_EVENT = 'isaac:speech_stopped';
  * zero-latency cutoff without waiting for utterance chunks to drain.
  */
 export function stopSpeechImmediately(): void {
+  if (Capacitor.isNativePlatform()) {
+    nativeSpeaking = false;
+    try {
+      TextToSpeech.stop().catch(() => {});
+    } catch (_) {}
+    try {
+      window.dispatchEvent(new CustomEvent(SPEECH_STOP_EVENT));
+    } catch (_) {}
+    return;
+  }
+
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     return;
   }
@@ -75,6 +94,9 @@ export function stopSpeechImmediately(): void {
  * Checks whether speech synthesis is actively speaking or queued.
  */
 export function isSpeechActive(): boolean {
+  if (Capacitor.isNativePlatform()) {
+    return nativeSpeaking;
+  }
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     return false;
   }
@@ -106,15 +128,45 @@ export function playSpeech(
     onError?: (err?: any) => void;
   }
 ): boolean {
+  const cleanText = sanitizeTextForSpeech(text);
+  if (!cleanText) return false;
+
+  // Native path: Android/iOS WebView speechSynthesis produces no audio
+  if (Capacitor.isNativePlatform()) {
+    try {
+      nativeSpeaking = true;
+      callbacks?.onStart?.();
+      TextToSpeech.speak({
+        text: cleanText,
+        lang: 'en-US',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+        queueStrategy: 1
+      })
+        .then(() => {
+          nativeSpeaking = false;
+          callbacks?.onEnd?.();
+        })
+        .catch((err) => {
+          nativeSpeaking = false;
+          callbacks?.onError?.(err);
+          callbacks?.onEnd?.();
+        });
+      return true;
+    } catch (err) {
+      nativeSpeaking = false;
+      callbacks?.onError?.(err);
+      return false;
+    }
+  }
+
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     return false;
   }
 
   // Ensure any previous speech is halted first
   stopSpeechImmediately();
-
-  const cleanText = sanitizeTextForSpeech(text);
-  if (!cleanText) return false;
 
   try {
     const utterance = new SpeechSynthesisUtterance(cleanText);

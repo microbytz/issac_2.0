@@ -70,6 +70,7 @@ import {
 } from '../utils/weatherService';
 
 import { stopSpeechImmediately, playSpeech, isSpeechActive, SPEECH_STOP_EVENT } from '../utils/speechUtils';
+import { Capacitor } from '@capacitor/core';
 
 import {
   generateSecurePassword,
@@ -219,7 +220,7 @@ export const InstantAnswerWidget: React.FC<InstantAnswerProps> = ({
   }, []);
 
   const speakText = (text: string, key?: string) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if ((typeof window !== 'undefined' && 'speechSynthesis' in window) || Capacitor.isNativePlatform()) {
       const activeKey = key || text;
       const isCurrentlyThis = speakingTextKey === activeKey;
       const isAnyActive = isSpeechActive() || speakingTextKey !== null;

@@ -65,8 +65,7 @@ export const InAppStoryReaderModal: React.FC<InAppStoryReaderModalProps> = ({
   onNotify,
   searchQuery = ''
 }) => {
-  const modalRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(modalRef, isOpen);
+  const focusTrapRef = useFocusTrap<HTMLDivElement>();
 
   // Reader Preferences (persisted in localStorage)
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>(() => {
@@ -174,9 +173,11 @@ export const InAppStoryReaderModal: React.FC<InAppStoryReaderModalProps> = ({
         snippet: story.snippet || ''
       });
 
-      fetch(apiUrl(`/api/reader?${params.toString()}`))
+      const controller = new AbortController();
+      fetch(apiUrl(`/api/reader?${params.toString()}`), { signal: controller.signal })
         .then(res => res.ok ? res.json() : null)
         .then(data => {
+          if (controller.signal.aborted) return;
           if (data && Array.isArray(data.paragraphs) && data.paragraphs.length > 0) {
             setFetchedParagraphs(data.paragraphs);
             setActiveStoryDetails({
@@ -189,8 +190,9 @@ export const InAppStoryReaderModal: React.FC<InAppStoryReaderModalProps> = ({
         })
         .catch(() => {})
         .finally(() => {
-          setIsLoadingContent(false);
+          if (!controller.signal.aborted) setIsLoadingContent(false);
         });
+      return () => controller.abort();
     } else {
       setIsLoadingContent(false);
     }
@@ -361,7 +363,7 @@ export const InAppStoryReaderModal: React.FC<InAppStoryReaderModalProps> = ({
         onClick={handleClose}
       >
         <motion.div
-          ref={modalRef}
+          ref={focusTrapRef}
           initial={{ opacity: 0, y: 30, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 20, scale: 0.98 }}

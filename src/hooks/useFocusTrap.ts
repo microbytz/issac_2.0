@@ -27,7 +27,8 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>() {
       const first = node.querySelector<HTMLElement>(FOCUSABLE);
       (first ?? node).focus({ preventScroll: true });
     } else {
-      previousFocus.current?.focus({ preventScroll: true });
+      const prev = previousFocus.current;
+      if (prev && prev.isConnected) prev.focus({ preventScroll: true });
       previousFocus.current = null;
     }
   }, []);

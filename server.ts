@@ -1,8 +1,11 @@
 import express from 'express';
+import compression from 'compression';
 import sharp from 'sharp';
 import type { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import zlib from 'zlib';
+import crypto from 'crypto';
+import { zipSync } from 'fflate';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -16,6 +19,56 @@ import type {
   FireplexityNewsItem,
   FireplexityImageItem
 } from './src/utils/fireplexityUtils.ts';
+import {
+  isPrivateHost as isPrivateImageHost,
+  fetchPublicResource,
+  fetchPublicText
+} from './safeFetch.ts';
+import {
+  setPageIndexer,
+  setJobListener,
+  startCrawl,
+  pauseCrawl,
+  retryCrawl,
+  getCrawlStatus,
+  getCrawlHistory,
+  getCrawlTrend,
+  getInlinkCount,
+  loadCrawlHistory,
+  exportLinkGraph,
+  importLinkGraph,
+  getHostQuality,
+  exportHostStats,
+  importHostStats,
+  extractPage,
+  extractLinksDetailed,
+  recordLink,
+  recordAnchor,
+  getAnchorText,
+  exportAnchorGraph,
+  importAnchorGraph,
+  computePageRank,
+  getRelativeAuthority,
+  checkRobotsAllowed,
+  computeLinkSpam,
+  getLinkSpam,
+  setBlockedHosts,
+  isBlockedHost
+} from './crawler.ts';
+import type { CrawledPage } from './crawler.ts';
+import { queryCCIndex, fetchWarcHtml } from './commonCrawl.ts';
+import type { CCRecord } from './commonCrawl.ts';
+import { InvertedIndex } from './searchIndex.ts';
+import { getWeights, importWeights, exportWeights, learnFromPair } from './ranker.ts';
+import { rerankHits, exportDocEmbeddings, importDocEmbeddings } from './reranker.ts';
+import {
+  recordClick,
+  getUrlClicks,
+  getQueryClicks,
+  exportClicks,
+  importClicks,
+  normalizeQuery
+} from './feedback.ts';
 
 dotenv.config({ quiet: true });
 
@@ -29,6 +82,12 @@ const MAX_SERVER_SEEDS = 500;
 const MAX_NOTE_LENGTH = 2000;
 const MAX_URL_LENGTH = 2048;
 const MAX_PAGE_CONTENT_LENGTH = 200_000;
+const MAX_NOTES_PER_URL = 50;
+const MAX_NOTE_URLS = 1000;
+const MAX_VOTES_PER_NOTE = 10_000;
+const MAX_READER_CACHE_ENTRIES = 200;
+const MAX_VIDEO_CACHE_ENTRIES = 200;
+const MAX_READER_BYTES = 2 * 1024 * 1024;
 
 function isHttpUrl(value: unknown): value is string {
   if (typeof value !== 'string' || !value || value.length > MAX_URL_LENGTH) return false;
@@ -51,12 +110,19 @@ function getCorsOrigins(): string[] {
  * When ADMIN_API_KEY is configured, admin/mutating routes require it via
  * `X-Admin-Key: <key>` or `Authorization: Bearer <key>`. When unset, routes stay open.
  */
+function safeKeyEqual(provided: string | undefined, expected: string): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 function isAdminRequest(req: Request): boolean {
   const adminKey = process.env.ADMIN_API_KEY?.trim();
   if (!adminKey) return true;
   const headerKey = req.header('x-admin-key');
   const bearer = req.header('authorization')?.replace(/^Bearer\s+/i, '');
-  return headerKey === adminKey || bearer === adminKey;
+  return safeKeyEqual(headerKey, adminKey) || safeKeyEqual(bearer, adminKey);
 }
 
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
@@ -86,11 +152,15 @@ function sortPages(pages: ServerIndexedPage[], sortBy: string) {
 
 /** Drops the oldest auto-indexed pages (never manually indexed or seed pages) once the catalog exceeds its cap. */
 function trimCatalog() {
+  let evicted = false;
   for (let i = serverIndexedPages.length - 1; i >= 0 && serverIndexedPages.length > MAX_CATALOG_PAGES; i--) {
     if (serverIndexedPages[i].auto_indexed) {
+      searchIndex.remove(serverIndexedPages[i].id);
       serverIndexedPages.splice(i, 1);
+      evicted = true;
     }
   }
+  if (evicted) scheduleStateSave();
 }
 
 function trimSeeds() {
@@ -99,12 +169,184 @@ function trimSeeds() {
   }
 }
 
+// Crawled and WARC-ingested pages enter the catalog through the same path as
+// /api/index — they're marked auto_indexed so trimCatalog can evict them.
+function indexCrawledPage(page: CrawledPage) {
+  // rel=canonical wins: duplicate/alias URLs collapse onto the canonical one.
+  const pageUrl = page.canonical_url || page.final_url || page.url;
+  try {
+    if (isBlockedHost(new URL(pageUrl).hostname)) return;
+  } catch (_) {
+    return;
+  }
+  if (blockedUrls.has(pageUrl)) return;
+  const existingIdx = serverIndexedPages.findIndex(
+    p => p.url.toLowerCase() === pageUrl.toLowerCase() || p.url.toLowerCase() === page.url.toLowerCase()
+  );
+  const entry: ServerIndexedPage = {
+    id: existingIdx !== -1 ? serverIndexedPages[existingIdx].id : `crawl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    url: pageUrl,
+    canonical_url: page.canonical_url || page.final_url || page.url,
+    title: page.title,
+    snippet: String(page.snippet || '').slice(0, 300),
+    content: String(page.content || '').slice(0, MAX_PAGE_CONTENT_LENGTH),
+    backlinks: existingIdx !== -1
+      ? (serverIndexedPages[existingIdx].backlinks || 1)
+      : Math.max(1, getInlinkCount(pageUrl)),
+    host_quality: getHostQuality(pageUrl),
+    authority: getRelativeAuthority(pageUrl),
+    link_spam: getLinkSpam(pageUrl),
+    anchor_text: getAnchorText(pageUrl) || undefined,
+    clicks: existingIdx !== -1 ? (serverIndexedPages[existingIdx].clicks || 0) : getUrlClicks(pageUrl),
+    indexed_at: new Date().toUTCString(),
+    cache_hit: false,
+    likes: existingIdx !== -1 ? (serverIndexedPages[existingIdx].likes || 0) : 0,
+    author: page.author,
+    language: page.language || 'English',
+    tags: Array.isArray(page.keywords) ? page.keywords.slice(0, 10) : [],
+    meta_description: page.meta_description,
+    keywords: page.keywords,
+    auto_indexed: true,
+    crawled: true,
+    images: Array.isArray(page.images) ? page.images.slice(0, 20) : undefined,
+    rich: page.rich
+  };
+  if (existingIdx !== -1) {
+    serverIndexedPages[existingIdx] = { ...serverIndexedPages[existingIdx], ...entry };
+    syncIndex(serverIndexedPages[existingIdx]);
+  } else {
+    serverIndexedPages.unshift(entry);
+    syncIndex(entry);
+  }
+  trimCatalog();
+}
+setPageIndexer(indexCrawledPage);
+
+// After each crawl or WARC ingest: PageRank propagates authority through the
+// link graph, inlink counts become backlink signals, and host quality updates —
+// refresh pages so ranking reflects the latest outcomes.
+function refreshRankSignals() {
+  computePageRank();
+  computeLinkSpam();
+  for (const p of serverIndexedPages) {
+    const inlinks = getInlinkCount(p.url);
+    const quality = getHostQuality(p.url);
+    const authority = getRelativeAuthority(p.url);
+    const linkSpamMult = getLinkSpam(p.url);
+    const anchors = getAnchorText(p.url);
+    let changed = false;
+    if (inlinks > (p.backlinks || 0)) {
+      p.backlinks = inlinks;
+      changed = true;
+    }
+    if (quality !== (p.host_quality ?? 1)) {
+      p.host_quality = quality;
+      changed = true;
+    }
+    if (authority !== (p.authority ?? 0)) {
+      p.authority = authority;
+      changed = true;
+    }
+    if (linkSpamMult !== (p.link_spam ?? 1)) {
+      p.link_spam = linkSpamMult;
+      changed = true;
+    }
+    if (anchors && anchors !== p.anchor_text) {
+      p.anchor_text = anchors;
+      changed = true;
+    }
+    if (changed) searchIndex.add(p);
+  }
+  scheduleStateSave();
+}
+
+// ---------------------------------------------------------------------------
+// Recrawl — stale pages are re-fetched so indexed content stays fresh. Dead
+// pages (404/410) drop out of the catalog; everything else re-indexes through
+// the normal path (likes/clicks are preserved by the existing merge).
+// ---------------------------------------------------------------------------
+
+interface RecrawlResult {
+  checked: number;
+  refreshed: number;
+  removed: number;
+  failed: number;
+  duration_ms: number;
+}
+
+let recrawlRunning = false;
+
+async function recrawlStalePages(maxAgeDays: number, limit: number): Promise<RecrawlResult> {
+  const cutoff = Date.now() - maxAgeDays * 86400000;
+  const stale = serverIndexedPages
+    .filter(p => p.crawled || p.auto_indexed)
+    .filter(p => {
+      const t = p.indexed_at ? Date.parse(p.indexed_at) : 0;
+      return t > 0 && t < cutoff;
+    })
+    .sort((a, b) => Date.parse(a.indexed_at!) - Date.parse(b.indexed_at!))
+    .slice(0, Math.min(Math.max(1, limit), 50));
+
+  const started = Date.now();
+  const result: RecrawlResult = { checked: 0, refreshed: 0, removed: 0, failed: 0, duration_ms: 0 };
+  for (const p of stale) {
+    result.checked++;
+    try {
+      if (!(await checkRobotsAllowed(p.url))) {
+        result.failed++;
+        continue;
+      }
+      const res = await fetchPublicResource(p.url, {
+        timeoutMs: 12_000,
+        maxBytes: 2 * 1024 * 1024,
+        userAgent: 'IsaacBot/2.0 (+https://issac.microbytz.xyz)',
+        accept: 'text/html,application/xhtml+xml;q=0.9'
+      });
+      if (!res) {
+        result.failed++;
+        continue;
+      }
+      if (res.status === 404 || res.status === 410) {
+        const idx = serverIndexedPages.findIndex(x => x.id === p.id);
+        if (idx !== -1) {
+          searchIndex.remove(p.id);
+          serverIndexedPages.splice(idx, 1);
+          searchResponseCache.clear();
+        }
+        result.removed++;
+        continue;
+      }
+      if (res.status >= 400 || !res.body) {
+        result.failed++;
+        continue;
+      }
+      const page = extractPage(res.body.toString('utf-8'), p.url, res.finalUrl || p.url);
+      if (page && !page.noindex) {
+        indexCrawledPage(page);
+        result.refreshed++;
+      } else {
+        result.failed++;
+      }
+    } catch (_) {
+      result.failed++;
+    }
+    await new Promise(r => setTimeout(r, 800)); // politeness between refetches
+  }
+  result.duration_ms = Date.now() - started;
+  if (result.checked > 0) scheduleStateSave();
+  return result;
+}
+
+let geminiClientInstance: GoogleGenAI | null | undefined;
+
 function getGeminiClient(): GoogleGenAI | null {
+  if (geminiClientInstance !== undefined) return geminiClientInstance;
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+    geminiClientInstance = null;
     return null;
   }
-  return new GoogleGenAI({
+  geminiClientInstance = new GoogleGenAI({
     apiKey,
     httpOptions: {
       headers: {
@@ -112,6 +354,7 @@ function getGeminiClient(): GoogleGenAI | null {
       }
     }
   });
+  return geminiClientInstance;
 }
 
 function writeNdjsonEvent(res: Response, payload: Record<string, any>) {
@@ -447,6 +690,21 @@ interface ServerIndexedPage {
   fallback_source?: string;
   searxng_engines?: string[];
   auto_indexed?: boolean;
+  crawled?: boolean;
+  clicks?: number;
+  host_quality?: number;
+  authority?: number;
+  link_spam?: number;
+  anchor_text?: string;
+  images?: Array<{ url: string; alt: string }>;
+  rich?: {
+    type: string;
+    name?: string;
+    rating?: number;
+    rating_count?: number;
+    date_published?: string;
+    price?: string;
+  };
 }
 
 const serverIndexedPages: ServerIndexedPage[] = [
@@ -583,6 +841,172 @@ const serverIndexedPages: ServerIndexedPage[] = [
   }
 ];
 
+// ============================================================================
+// INVERTED INDEX, QUERY LOG & STATE PERSISTENCE
+// ============================================================================
+// The catalog is indexed by a real inverted index (BM25, field-weighted,
+// stemmed) — see searchIndex.ts. Engine state (catalog, seeds, crawl history,
+// schedule, query log) persists to data/engine-state.json so the index and
+// crawler history survive restarts.
+
+const searchIndex = new InvertedIndex<ServerIndexedPage>();
+const queryLog = new Map<string, number>();
+const MAX_QUERY_LOG = 5000;
+// Per-query ranking features of the last result set — consumed by the click
+// endpoint to run pairwise weight updates (ranker.ts).
+const recentQueryFeatures = new Map<string, Map<string, number[]>>();
+// 60s response cache for /api/search — keyed by the full param set.
+const SEARCH_CACHE_TTL_MS = 60_000;
+const SEARCH_CACHE_MAX = 200;
+const searchResponseCache = new Map<string, { at: number; payload: object }>();
+
+const STATE_DIR = path.join(__dirname, 'data');
+const STATE_FILE = path.join(STATE_DIR, 'engine-state.json');
+const PERSISTED_CONTENT_CAP = 30_000;
+
+function saveEngineState() {
+  try {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    const pages = serverIndexedPages.map(p =>
+      p.content && p.content.length > PERSISTED_CONTENT_CAP
+        ? { ...p, content: p.content.slice(0, PERSISTED_CONTENT_CAP) }
+        : p
+    );
+    const payload = {
+      pages,
+      seeds: serverSeeds,
+      crawlHistory: getCrawlHistory(),
+      linkGraph: exportLinkGraph(),
+      anchorGraph: exportAnchorGraph(),
+      hostStats: exportHostStats(),
+      clicks: exportClicks(),
+      rankWeights: exportWeights(),
+      docEmbeddings: exportDocEmbeddings(),
+      schedule: serverSchedule,
+      autoCrawl: serverAutoCrawlEnabled,
+      blockedHosts: [...blockedHostnames],
+      blockedUrls: [...blockedUrls],
+      queryLog: [...queryLog.entries()],
+      savedAt: Date.now()
+    };
+    const tmp = STATE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(payload));
+    fs.renameSync(tmp, STATE_FILE);
+  } catch (_) {}
+}
+
+let stateSaveTimer: NodeJS.Timeout | null = null;
+function scheduleStateSave() {
+  if (stateSaveTimer) return;
+  stateSaveTimer = setTimeout(() => {
+    stateSaveTimer = null;
+    saveEngineState();
+  }, 3000);
+  stateSaveTimer.unref();
+}
+
+function loadEngineState() {
+  try {
+    const raw = fs.readFileSync(STATE_FILE, 'utf-8');
+    const st = JSON.parse(raw);
+    if (Array.isArray(st.pages)) {
+      const valid = st.pages.filter(
+        (p: any) => p && typeof p.id === 'string' && typeof p.url === 'string' && typeof p.title === 'string'
+      ).slice(0, MAX_CATALOG_PAGES);
+      // Persisted pages win over the hardcoded defaults (they may carry crawl
+      // updates/likes); defaults only fill in URLs the file doesn't have.
+      const persistedUrls = new Set(valid.map((p: ServerIndexedPage) => p.url.toLowerCase()));
+      const defaults = serverIndexedPages.splice(0);
+      serverIndexedPages.push(...valid);
+      for (const d of defaults) {
+        if (!persistedUrls.has(d.url.toLowerCase())) serverIndexedPages.push(d);
+      }
+    }
+    if (Array.isArray(st.seeds)) {
+      const validSeeds = st.seeds.filter((s: any) => s && typeof s.id === 'string' && isHttpUrl(s.url));
+      if (validSeeds.length > 0) serverSeeds = validSeeds.slice(0, MAX_SERVER_SEEDS);
+    }
+    if (Array.isArray(st.crawlHistory)) loadCrawlHistory(st.crawlHistory);
+    if (Array.isArray(st.linkGraph)) {
+      importLinkGraph(
+        st.linkGraph.filter(
+          (e: any) => Array.isArray(e) && typeof e[0] === 'string' && Array.isArray(e[1])
+        )
+      );
+    }
+    if (Array.isArray(st.anchorGraph)) {
+      importAnchorGraph(
+        st.anchorGraph.filter(
+          (e: any) => Array.isArray(e) && typeof e[0] === 'string' && Array.isArray(e[1])
+        )
+      );
+    }
+    if (st.rankWeights && typeof st.rankWeights === 'object') importWeights(st.rankWeights);
+    if (Array.isArray(st.docEmbeddings)) importDocEmbeddings(st.docEmbeddings);
+    if (Array.isArray(st.hostStats)) {
+      importHostStats(
+        st.hostStats.filter((e: any) => Array.isArray(e) && typeof e[0] === 'string' && e[1])
+      );
+    }
+    if (st.clicks && typeof st.clicks === 'object') importClicks(st.clicks);
+    // Apply restored click counts, host quality, and PageRank authority onto
+    // the merged catalog.
+    computePageRank();
+    computeLinkSpam();
+    for (const p of serverIndexedPages) {
+      const c = getUrlClicks(p.url);
+      if (c > 0) p.clicks = c;
+      p.host_quality = getHostQuality(p.url);
+      p.authority = getRelativeAuthority(p.url);
+      p.link_spam = getLinkSpam(p.url);
+      const anchors = getAnchorText(p.url);
+      if (anchors) p.anchor_text = anchors;
+    }
+    if (st.schedule && typeof st.schedule === 'object') {
+      serverSchedule = { ...serverSchedule, ...st.schedule };
+    }
+    serverAutoCrawlEnabled = Boolean(st.autoCrawl);
+    if (Array.isArray(st.blockedHosts)) {
+      for (const h of st.blockedHosts) {
+        if (typeof h === 'string' && h.trim()) blockedHostnames.add(h.trim().toLowerCase());
+      }
+      setBlockedHosts([...blockedHostnames]);
+    }
+    if (Array.isArray(st.blockedUrls)) {
+      for (const u of st.blockedUrls) {
+        if (typeof u === 'string' && u.trim()) blockedUrls.add(u.trim());
+      }
+    }
+    if (Array.isArray(st.queryLog)) {
+      for (const e of st.queryLog) {
+        if (Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'number') {
+          queryLog.set(e[0], e[1]);
+          if (queryLog.size >= MAX_QUERY_LOG) break;
+        }
+      }
+    }
+  } catch (_) {}
+}
+
+// Keeps the inverted index and persisted state in sync with catalog mutations.
+// Also invalidates the search cache — results changed.
+function syncIndex(page: ServerIndexedPage) {
+  searchIndex.add(page);
+  searchResponseCache.clear();
+  scheduleStateSave();
+}
+
+function recordQuery(q: string) {
+  const key = q.toLowerCase().trim();
+  if (!key) return;
+  queryLog.set(key, (queryLog.get(key) || 0) + 1);
+  if (queryLog.size > MAX_QUERY_LOG) {
+    const oldest = queryLog.keys().next().value;
+    if (oldest !== undefined) queryLog.delete(oldest);
+  }
+  scheduleStateSave();
+}
+
 const PUBLIC_SEARXNG_INSTANCES = [
   'https://searx.be',
   'https://search.ononoki.org',
@@ -676,63 +1100,36 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
   return results;
 }
 
-// Loopback, link-local and RFC1918/CGNAT hosts — provider-supplied image URLs
-// must never make the server fetch internal resources.
-const PRIVATE_IMAGE_HOST_RE = /^localhost$|\.local$|\.internal$|^0\.0\.0\.0$|^::$|^\[?::1\]?$|^127\.|^10\.|^169\.254\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./i;
-
-function isPrivateImageHost(hostname: string): boolean {
-  return PRIVATE_IMAGE_HOST_RE.test(hostname);
+// Fetches at most MAX_COLOR_SAMPLE_BYTES of an image through the SSRF-guarded
+// shared fetcher (scheme + host validated on every redirect hop).
+async function fetchImageSample(imageUrl: string): Promise<Buffer | undefined> {
+  const res = await fetchPublicResource(imageUrl, {
+    timeoutMs: 3000,
+    maxBytes: MAX_COLOR_SAMPLE_BYTES,
+    userAgent: 'IsaacSearchEngine/2.0',
+    accept: 'image/*'
+  });
+  return res?.body;
 }
 
-// Fetches at most MAX_COLOR_SAMPLE_BYTES of an image, validating the scheme and
-// host of the URL and every redirect target so results can't pivot into the
-// internal network.
-async function fetchImageSample(imageUrl: string): Promise<Buffer | undefined> {
-  let url = imageUrl;
-  for (let hop = 0; hop < 4; hop++) {
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch (_) {
-      return undefined;
-    }
-    if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || isPrivateImageHost(parsed.hostname)) {
-      return undefined;
-    }
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'IsaacSearchEngine/2.0', Accept: 'image/*' },
-      signal: AbortSignal.timeout(3000),
-      redirect: 'manual'
-    });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (!location) return undefined;
-      url = new URL(location, url).toString();
-      continue;
-    }
-    if (!response.ok || !response.body) return undefined;
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (declaredLength > MAX_COLOR_SAMPLE_BYTES) return undefined;
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.length;
-        if (total > MAX_COLOR_SAMPLE_BYTES) {
-          await reader.cancel();
-          return undefined;
-        }
-        chunks.push(value);
-      }
-    } catch (_) {
-      return undefined;
-    }
-    return Buffer.concat(chunks);
+/** Inserts into a Map while capping its size, evicting the oldest entry first. */
+function boundedCacheSet<K, V>(map: Map<K, V>, key: K, value: V, maxEntries: number) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  while (map.size > maxEntries) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
   }
-  return undefined;
+}
+
+// Fetches a public page for readability extraction through the shared
+// SSRF-guarded fetcher, keeping the reader's browser-style UA.
+function fetchPublicPage(pageUrl: string, timeoutMs: number): Promise<string | undefined> {
+  return fetchPublicText(pageUrl, timeoutMs, {
+    maxBytes: MAX_READER_BYTES,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 (IsaacReader/2.0)'
+  });
 }
 
 async function detectDominantColor(imageUrl: string): Promise<string | undefined> {
@@ -1166,6 +1563,10 @@ async function fetchRelatedSearches(query: string): Promise<string[]> {
 }
 
 let serverAutoCrawlEnabled = false;
+// Admin blocklist — hosts are rejected by the crawler itself; exact URLs are
+// purged from the catalog. Both persist to engine-state.json.
+const blockedHostnames = new Set<string>();
+const blockedUrls = new Set<string>();
 let serverSchedule = {
   enabled: false,
   interval: 'daily',
@@ -1176,6 +1577,18 @@ let serverSchedule = {
 
 async function startServer() {
   const app = express();
+  // Behind Cloud Run's single managed proxy — makes req.ip the real client IP
+  // for click-feedback dedup and community-note vote tracking.
+  app.set('trust proxy', 1);
+
+  // Restore persisted engine state (catalog, seeds, crawl history, schedule,
+  // query log), then rebuild the inverted index from the restored catalog.
+  loadEngineState();
+  searchIndex.rebuild(serverIndexedPages);
+  // After each crawl: real inlink counts from the graph become backlink
+  // signals, and host quality updates — refresh affected pages so ranking
+  // reflects the latest crawl outcomes.
+  setJobListener(refreshRankSignals);
 
   // Allow cross-origin requests from mobile apps (Capacitor https://localhost / capacitor://localhost)
   // Set CORS_ORIGINS (comma-separated) to restrict cross-origin access; defaults to '*'.
@@ -1200,6 +1613,55 @@ async function startServer() {
   });
 
   app.use(express.json({ limit: '5mb' }));
+  app.use(compression());
+
+  // Basic security headers — nosniff, no framing, sane referrer policy.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
+  // Per-IP sliding-window rate limit on expensive endpoints — every search can
+  // trigger external fetches (SearXNG) and auto-index writes, so unbounded
+  // traffic is a real cost/DoS vector, not just a fairness issue.
+  const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
+    '/search': { max: 60, windowMs: 60_000 },
+    '/suggest': { max: 120, windowMs: 60_000 }
+  };
+  const rateHits = new Map<string, number[]>(); // "bucket|ip" -> timestamps
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    const rule = req.path === '/search' || req.path.startsWith('/search/')
+      ? RATE_LIMITS['/search']
+      : RATE_LIMITS[req.path];
+    if (!rule) {
+      next();
+      return;
+    }
+    const key = `${req.path}|${req.ip || 'anon'}`;
+    const now = Date.now();
+    let hits = rateHits.get(key);
+    if (!hits) {
+      hits = [];
+      rateHits.set(key, hits);
+    }
+    while (hits.length > 0 && now - hits[0] > rule.windowMs) hits.shift();
+    if (hits.length >= rule.max) {
+      res.status(429).json({
+        error: 'rate limit exceeded',
+        retry_after_seconds: Math.ceil((rule.windowMs - (now - hits[0])) / 1000)
+      });
+      return;
+    }
+    hits.push(now);
+    if (rateHits.size > 10_000) rateHits.clear(); // memory bound
+    next();
+  });
+
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.json({ ok: true, index_size: searchIndex.size, uptime_s: Math.floor(process.uptime()) });
+  });
 
   // Forward /api/* (except Fireplexity, which only lives here) to the FastAPI backend when PYTHON_BACKEND_URL is set.
   const pythonBackendUrl = process.env.PYTHON_BACKEND_URL?.trim().replace(/\/$/, '');
@@ -1265,9 +1727,21 @@ async function startServer() {
       created_at: Math.floor(Date.now() / 1000)
     };
     const existing = communityNotesByUrl.get(url) || [];
+    if (existing.length >= MAX_NOTES_PER_URL) {
+      res.status(429).json({ error: `This page already has the maximum of ${MAX_NOTES_PER_URL} notes` });
+      return;
+    }
+    if (!communityNotesByUrl.has(url) && communityNotesByUrl.size >= MAX_NOTE_URLS) {
+      const oldestUrl = communityNotesByUrl.keys().next().value;
+      if (oldestUrl !== undefined) communityNotesByUrl.delete(oldestUrl);
+    }
     communityNotesByUrl.set(url, [newNote, ...existing]);
     res.json(newNote);
   });
+
+  // Tracks each voter's current vote per note (keyed by requester IP) so the
+  // client-claimed previous_vote can't be replayed to inflate counts.
+  const noteVotesByNoteId = new Map<string, Map<string, 'helpful' | 'not_helpful'>>();
 
   app.post('/api/pages/notes/:noteId/vote', (req: Request, res: Response) => {
     const { noteId } = req.params;
@@ -1280,11 +1754,19 @@ async function startServer() {
     for (const notes of communityNotesByUrl.values()) {
       const note = notes.find(n => n.id === noteId);
       if (note) {
-        if (previous_vote !== vote_type) {
-          if (previous_vote === 'helpful') note.helpful_count = Math.max(0, note.helpful_count - 1);
-          if (previous_vote === 'not_helpful') note.not_helpful_count = Math.max(0, note.not_helpful_count - 1);
+        const voterKey = req.ip || 'unknown';
+        let voters = noteVotesByNoteId.get(noteId);
+        if (!voters) {
+          voters = new Map();
+          noteVotesByNoteId.set(noteId, voters);
+        }
+        const recordedVote = voters.get(voterKey);
+        if (recordedVote !== vote_type && (recordedVote !== undefined || voters.size < MAX_VOTES_PER_NOTE)) {
+          if (recordedVote === 'helpful') note.helpful_count = Math.max(0, note.helpful_count - 1);
+          if (recordedVote === 'not_helpful') note.not_helpful_count = Math.max(0, note.not_helpful_count - 1);
           if (vote_type === 'helpful') note.helpful_count += 1;
           else note.not_helpful_count += 1;
+          voters.set(voterKey, vote_type);
         }
         note.score = note.helpful_count - note.not_helpful_count;
         res.json(note);
@@ -1303,6 +1785,7 @@ async function startServer() {
 
   app.delete('/api/crawler/seeds/:id', requireAdmin, (req: Request, res: Response) => {
     serverSeeds = serverSeeds.filter(s => s.id !== req.params.id);
+    scheduleStateSave();
     res.json({ status: 'deleted', id: req.params.id });
   });
 
@@ -1312,6 +1795,7 @@ async function startServer() {
 
   app.post('/api/crawler/auto-crawl', requireAdmin, (req: Request, res: Response) => {
     serverAutoCrawlEnabled = Boolean(req.body?.enabled);
+    scheduleStateSave();
     res.json({ enabled: serverAutoCrawlEnabled });
   });
 
@@ -1335,31 +1819,150 @@ async function startServer() {
       interval: interval || serverSchedule.interval,
       start_url: start_url || serverSchedule.start_url
     };
+    if (serverSchedule.enabled) {
+      const intervalMs = serverSchedule.interval === 'weekly' ? 7 * 86400000 : 86400000;
+      serverSchedule.next_run = new Date(Date.now() + intervalMs).toISOString().replace('T', ' ').slice(0, 19);
+    }
+    scheduleStateSave();
     res.json({ status: 'updated', schedule: serverSchedule });
   });
 
   app.get('/api/crawler/history', (_req: Request, res: Response) => {
-    res.json([]);
+    res.json(getCrawlHistory());
   });
 
-  app.get('/api/crawler/trend', (_req: Request, res: Response) => {
-    res.json([]);
+  app.get('/api/crawler/trend', (req: Request, res: Response) => {
+    const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
+    res.json(getCrawlTrend(days));
   });
 
-  app.post('/api/crawl/start', requireAdmin, (_req: Request, res: Response) => {
-    res.json({ status: 'started' });
+  app.get('/api/crawler/status', (_req: Request, res: Response) => {
+    res.json(getCrawlStatus());
+  });
+
+  app.post('/api/crawl/start', requireAdmin, (req: Request, res: Response) => {
+    const body = req.body || {};
+    let seeds: string[];
+    if (isHttpUrl(body.url)) {
+      seeds = [String(body.url)];
+    } else if (Array.isArray(body.urls) && body.urls.length > 0) {
+      seeds = body.urls.filter(isHttpUrl).slice(0, 20);
+    } else {
+      seeds = serverSeeds.map(s => s.url).filter(isHttpUrl);
+    }
+    const result = startCrawl({
+      seeds,
+      maxPages: body.max_pages !== undefined ? Number(body.max_pages) : undefined,
+      maxDepth: body.max_depth !== undefined ? Number(body.max_depth) : undefined,
+      sameHostOnly: body.same_host !== false,
+      triggeredBy: 'manual',
+      jsRender: body.js_render === 'off' || body.js_render === 'always' ? body.js_render : 'auto',
+      useSitemaps: body.use_sitemaps !== false
+    });
+    if ('error' in result) {
+      res.status(409).json(result);
+      return;
+    }
+    res.json({ status: 'started', job: result.job });
   });
 
   app.post('/api/crawl/pause', requireAdmin, (_req: Request, res: Response) => {
-    res.json({ status: 'paused' });
+    res.json(pauseCrawl());
   });
 
   app.post('/api/crawl/retry', requireAdmin, (_req: Request, res: Response) => {
-    res.json({ status: 'retried' });
+    const result = retryCrawl();
+    if ('error' in result) {
+      res.status(409).json(result);
+      return;
+    }
+    res.json({ status: 'started', job: result.job });
+  });
+
+  // Stale-page recrawl: re-fetch catalog pages older than max_age_days so the
+  // index tracks the live web. Dead pages (404/410) are evicted.
+  app.post('/api/crawler/recrawl', requireAdmin, async (req: Request, res: Response) => {
+    if (recrawlRunning) {
+      res.status(409).json({ error: 'a recrawl is already running' });
+      return;
+    }
+    const maxAgeDays = Math.min(Math.max(0.02, Number(req.body?.max_age_days) || 14), 365);
+    const limit = Math.min(Math.max(1, Number(req.body?.limit) || 20), 50);
+    recrawlRunning = true;
+    try {
+      res.json(await recrawlStalePages(maxAgeDays, limit));
+    } finally {
+      recrawlRunning = false;
+    }
+  });
+
+  // Admin blocklist — demote entire hosts (crawler rejects them too) or exact
+  // URLs. Blocking a host purges its catalog pages immediately.
+  app.get('/api/crawler/blocklist', (_req: Request, res: Response) => {
+    res.json({ hosts: [...blockedHostnames], urls: [...blockedUrls] });
+  });
+
+  app.post('/api/crawler/blocklist', requireAdmin, (req: Request, res: Response) => {
+    const action = req.body?.action === 'remove' ? 'remove' : 'add';
+    const host = String(req.body?.host || '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/\/.*$/, '');
+    const url = String(req.body?.url || '').trim();
+    if (!host && !url) {
+      res.status(400).json({ error: 'host or url required' });
+      return;
+    }
+    let purged = 0;
+    if (host) {
+      if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) {
+        res.status(400).json({ error: 'invalid host' });
+        return;
+      }
+      if (action === 'add') {
+        blockedHostnames.add(host);
+        setBlockedHosts([...blockedHostnames]);
+        for (let i = serverIndexedPages.length - 1; i >= 0; i--) {
+          try {
+            const h = new URL(serverIndexedPages[i].url).hostname;
+            if (h === host || h.endsWith('.' + host)) {
+              searchIndex.remove(serverIndexedPages[i].id);
+              serverIndexedPages.splice(i, 1);
+              purged++;
+            }
+          } catch (_) {}
+        }
+      } else {
+        blockedHostnames.delete(host);
+        setBlockedHosts([...blockedHostnames]);
+      }
+    }
+    if (url) {
+      if (action === 'add') {
+        blockedUrls.add(url);
+        const idx = serverIndexedPages.findIndex(p => p.url === url);
+        if (idx !== -1) {
+          searchIndex.remove(serverIndexedPages[idx].id);
+          serverIndexedPages.splice(idx, 1);
+          purged++;
+        }
+      } else {
+        blockedUrls.delete(url);
+      }
+    }
+    searchResponseCache.clear();
+    scheduleStateSave();
+    res.json({ action, host: host || undefined, url: url || undefined, purged, hosts: blockedHostnames.size, urls: blockedUrls.size });
   });
 
   app.post('/api/cloud-functions/scheduled-crawl', requireAdmin, (_req: Request, res: Response) => {
-    res.json({ status: 'triggered' });
+    const seeds = isHttpUrl(serverSchedule.start_url)
+      ? [serverSchedule.start_url]
+      : serverSeeds.map(s => s.url).filter(isHttpUrl);
+    const result = startCrawl({ seeds, triggeredBy: 'scheduled' });
+    if ('error' in result) {
+      res.status(409).json(result);
+      return;
+    }
+    serverSchedule.last_run = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    res.json({ status: 'triggered', job: result.job });
   });
 
   let commonCrawlIndexId: string | null = null;
@@ -1388,44 +1991,176 @@ async function startServer() {
       .replace(/^https?:\/\//, '')
       .replace(/\/.*$/, '')
       .trim();
-    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const limit = Math.min(Math.max(1, Number(req.query.limit) || 20), 100);
 
     try {
       const indexId = await getCommonCrawlIndexId();
-      const ccUrl = `https://index.commoncrawl.org/${indexId}-index?url=${encodeURIComponent(domain + '/*')}&output=json&filter=status:200&matchType=domain&limit=${limit}`;
-      const ccRes = await fetch(ccUrl, {
-        headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
-        signal: AbortSignal.timeout(12000)
-      });
-      if (!ccRes.ok) throw new Error(`commoncrawl ${ccRes.status}`);
-
-      const text = await ccRes.text();
-      const urls = text
-        .split('\n')
-        .filter(line => line.trim().startsWith('{'))
-        .slice(0, limit)
-        .map(line => {
-          try {
-            const rec = JSON.parse(line);
-            return {
-              url: rec.url || '',
-              timestamp: rec.timestamp || '',
-              mime: rec.mime || 'text/html',
-              status: String(rec.status || '200')
-            };
-          } catch (_) {
-            return null;
-          }
-        })
-        .filter((r): r is { url: string; timestamp: string; mime: string; status: string } => !!r && !!r.url);
-
+      const records = await queryCCIndex(indexId, domain, limit);
+      const urls = records.map(r => ({
+        url: r.url,
+        timestamp: r.timestamp,
+        mime: r.mime || 'text/html',
+        status: r.status || '200',
+        filename: r.filename,
+        offset: r.offset,
+        length: r.length,
+        digest: r.digest
+      }));
       res.json({ domain, index: indexId, urls });
     } catch (_) {
       res.json({ domain, index: null, urls: [] });
     }
   });
 
-  app.post('/api/crawler/common-crawl/import', requireAdmin, (req: Request, res: Response) => {
+  // ---- Common Crawl WARC ingestion ----
+  // Pulls stored page content from data.commoncrawl.org instead of live sites:
+  // no robots/politeness needed, no live fetch — extract & index directly.
+  interface WarcJob {
+    id: string;
+    domain: string;
+    status: 'running' | 'done' | 'error';
+    total: number;
+    fetched: number;
+    indexed: number;
+    skipped: number;
+    errors: number;
+    started_at: number;
+    done_at?: number;
+    error?: string;
+  }
+  const warcJobs = new Map<string, WarcJob>();
+
+  function sanitizeCCRecord(raw: unknown): CCRecord | null {
+    const rec = raw as Partial<CCRecord>;
+    const url = String(rec?.url || '');
+    const filename = String(rec?.filename || '');
+    const offset = Number(rec?.offset);
+    const length = Number(rec?.length);
+    if (!isHttpUrl(url)) return null;
+    // WARC filenames always look like crawl-data/CC-MAIN-XXXX-XX/.../*.warc.gz —
+    // the client supplies these, so validate before building the range URL.
+    if (!/^crawl-data\/[A-Za-z0-9_./-]+\.warc\.gz$/.test(filename)) return null;
+    if (!Number.isFinite(offset) || !Number.isFinite(length) || offset < 0 || length <= 0) return null;
+    return {
+      url,
+      filename,
+      offset,
+      length,
+      timestamp: String(rec.timestamp || ''),
+      digest: String(rec.digest || ''),
+      status: String(rec.status || ''),
+      mime: String(rec.mime || '')
+    };
+  }
+
+  const WARC_JOB_DEADLINE_MS = 15 * 60 * 1000;
+
+  async function runWarcIngest(job: WarcJob, records: CCRecord[]) {
+    const queue = records.slice();
+    const deadline = Date.now() + WARC_JOB_DEADLINE_MS;
+    const worker = async () => {
+      while (queue.length > 0 && Date.now() < deadline) {
+        const rec = queue.shift()!;
+        try {
+          const out = await fetchWarcHtml(rec);
+          if (!out) {
+            job.errors++;
+            continue;
+          }
+          job.fetched++;
+          const page = extractPage(out.html, rec.url, rec.url);
+          if (!page || page.noindex || page.content.length < 80) {
+            job.skipped++;
+            continue;
+          }
+          if (!page.nofollow) {
+            for (const link of extractLinksDetailed(out.html, rec.url)) {
+              recordLink(rec.url, link.url);
+              if (link.text) recordAnchor(link.url, link.text);
+            }
+          }
+          indexCrawledPage(page);
+          job.indexed++;
+        } catch (_) {
+          job.errors++;
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    job.skipped += queue.length; // unfinished at the job deadline
+    job.status = 'done';
+    job.done_at = Date.now();
+    refreshRankSignals();
+  }
+
+  app.get('/api/crawler/common-crawl/jobs/:id', (req: Request, res: Response) => {
+    const job = warcJobs.get(req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'job not found' });
+      return;
+    }
+    res.json({ job });
+  });
+
+  app.post('/api/crawler/common-crawl/import', requireAdmin, async (req: Request, res: Response) => {
+    const rawRecords = Array.isArray(req.body?.records) ? req.body.records.slice(0, 200) : null;
+    const domainRaw = String(req.body?.domain || '')
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*$/, '')
+      .trim();
+
+    // WARC ingest mode: selected records, or a domain to look up + ingest.
+    if ((rawRecords && rawRecords.length > 0) || domainRaw) {
+      try {
+        let records: CCRecord[];
+        if (rawRecords && rawRecords.length > 0) {
+          records = rawRecords
+            .map(sanitizeCCRecord)
+            .filter((r): r is CCRecord => r !== null);
+        } else {
+          const indexId = await getCommonCrawlIndexId();
+          const limit = Math.min(Math.max(1, Number(req.body?.limit) || 25), 200);
+          records = await queryCCIndex(indexId, domainRaw, limit);
+        }
+        if (records.length === 0) {
+          res.json({ job: null, error: 'no valid WARC records' });
+          return;
+        }
+        let jobDomain = domainRaw;
+        if (!jobDomain) {
+          try {
+            jobDomain = new URL(records[0].url).hostname;
+          } catch (_) {}
+        }
+        const job: WarcJob = {
+          id: `warc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          domain: jobDomain,
+          status: 'running',
+          total: records.length,
+          fetched: 0,
+          indexed: 0,
+          skipped: 0,
+          errors: 0,
+          started_at: Date.now()
+        };
+        if (warcJobs.size >= 50) {
+          const oldest = warcJobs.keys().next().value;
+          if (oldest) warcJobs.delete(oldest);
+        }
+        warcJobs.set(job.id, job);
+        void runWarcIngest(job, records).catch(err => {
+          job.status = 'error';
+          job.error = String(err?.message || err).slice(0, 200);
+          job.done_at = Date.now();
+        });
+        res.json({ job });
+      } catch (e: any) {
+        res.status(502).json({ job: null, error: String(e?.message || e).slice(0, 200) });
+      }
+      return;
+    }
+
+    // Legacy mode: bare URLs become crawl seeds.
     const urls: unknown[] = Array.isArray(req.body?.urls) ? req.body.urls.slice(0, 200) : [];
     let added = 0;
     let skipped = 0;
@@ -1448,12 +2183,42 @@ async function startServer() {
       }
     }
     trimSeeds();
+    scheduleStateSave();
     res.json({ added_count: added, skipped_count: skipped });
   });
 
   // ============================================================================
   // 3. SEARCH, SUGGESTIONS & HISTORY API ROUTES (WITH SEARXNG FALLBACK)
   // ============================================================================
+
+  // Google-style query operators: site:, filetype:/ext:, "exact phrase", -term.
+  // site:/filetype:/phrases post-filter results; -term excludes at index level.
+  function parseQueryOperators(raw: string) {
+    let clean = raw;
+    let site: string | null = null;
+    const filetypes: string[] = [];
+    const phrases: string[] = [];
+    const excluded: string[] = [];
+    clean = clean.replace(/\bsite:([^\s]+)/gi, (_m, s) => {
+      if (!site) site = String(s).toLowerCase();
+      return ' ';
+    });
+    clean = clean.replace(/\b(?:filetype|ext):([a-z0-9]+)/gi, (_m, e) => {
+      filetypes.push(String(e).toLowerCase());
+      return ' ';
+    });
+    clean = clean.replace(/"([^"]+)"/g, (_m, p) => {
+      const t = String(p).trim().toLowerCase();
+      if (t) phrases.push(t);
+      return ' ';
+    });
+    clean = clean.replace(/(?:^|\s)-([^\s"(-][^\s]*)/g, (_m, t) => {
+      excluded.push(String(t));
+      return ' ';
+    });
+    return { clean: clean.replace(/\s+/g, ' ').trim(), site, filetypes, phrases, excluded };
+  }
+
   app.get('/api/search', async (req: Request, res: Response) => {
     const queryStr = String(req.query.q || '').trim();
     const pageNum = Math.max(1, Number(req.query.page) || 1);
@@ -1482,49 +2247,157 @@ async function startServer() {
       return;
     }
 
-    const lowerQ = queryStr.toLowerCase();
-    const terms = lowerQ.split(/\s+/).filter(Boolean);
+    // 1. Query the local inverted index — BM25 scoring over stemmed,
+    // field-weighted postings (title ×5, meta ×4, snippet ×3, url ×2, content ×1)
+    // with phrase boosts and link/freshness signals.
+    // Query operators (site:, filetype:, "exact", -term) are applied server-side
+    // — they shape retrieval, not just the visible page.
+    const ops = parseQueryOperators(queryStr);
+    const effectiveQuery = ops.clean || queryStr;
+    const effDomainFilter = domainFilter || ops.site || '';
+    recordQuery(effectiveQuery);
 
-    // 1. Query Firestore / local indexed catalog first
-    let matchedPages = serverIndexedPages.filter(p => {
-      const titleLower = (p.title || '').toLowerCase();
-      const snippetLower = (p.snippet || '').toLowerCase();
-      const contentLower = (p.content || '').toLowerCase();
-      const urlLower = (p.url || '').toLowerCase();
-      const metaDescLower = (p.meta_description || '').toLowerCase();
-      const keywordsList = p.keywords
-        ? Array.isArray(p.keywords)
-          ? p.keywords
-          : String(p.keywords).split(',')
-        : [];
-      const tagsList = p.tags || [];
-      const authorLower = (p.author || '').toLowerCase();
+    // Result cache — identical request params hit a 60s-TTL response payload.
+    // Cleared on every index mutation (syncIndex / blocklist) so new pages and
+    // purged ones never linger.
+    const cacheKey = [
+      normalizeQuery(queryStr), pageNum, pageLimit, sortBy, domainFilter, region,
+      minBacklinks, dateFromSec, dateToSec, fallbackEnabled, forceFallback, autoIndex, minResultsThreshold
+    ].join('|');
+    const cached = searchResponseCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) {
+      res.json({ ...cached.payload, served_from_cache: true });
+      return;
+    }
 
-      return (
-        titleLower.includes(lowerQ) ||
-        snippetLower.includes(lowerQ) ||
-        contentLower.includes(lowerQ) ||
-        urlLower.includes(lowerQ) ||
-        metaDescLower.includes(lowerQ) ||
-        authorLower.includes(lowerQ) ||
-        keywordsList.some(k => k.toLowerCase().includes(lowerQ)) ||
-        tagsList.some(t => t.toLowerCase().includes(lowerQ)) ||
-        (terms.length > 0 &&
-          terms.every(
-            term =>
-              titleLower.includes(term) ||
-              snippetLower.includes(term) ||
-              contentLower.includes(term) ||
-              metaDescLower.includes(term) ||
-              keywordsList.some(k => k.toLowerCase().includes(term)) ||
-              tagsList.some(t => t.toLowerCase().includes(term))
-          ))
-      );
+    // Query intent: navigational (short domain/brand-ish query) boosts URL-term
+    // matches; fresh-intent queries (latest/news/2026/…) widen the freshness
+    // cap — Query Deserves Freshness.
+    const qLower = effectiveQuery.trim().toLowerCase();
+    const qTerms = qLower.split(/\s+/);
+    const isFresh = /\b(latest|news|new|release[sd]?|updates?|20\d{2}|today|recent|announc\w*|breaking)\b/.test(qLower);
+    const isNav = qTerms.length <= 2 && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(qTerms[0]);
+    const hits = searchIndex.search(effectiveQuery, 500, {
+      weights: getWeights(),
+      urlTermBoost: isNav ? 2.5 : 1,
+      freshCap: isFresh ? 0.3 : 0.1,
+      prf: !isNav, // PRF expands informational queries; navigational stays literal
+      excludeTerms: ops.excluded
     });
+    // Click-feedback rerank: pages users actually clicked *for this query*
+    // get a strong boost; the per-URL global signal lives on the doc and is
+    // already blended into BM25 above.
+    {
+      const qNorm = normalizeQuery(queryStr);
+      for (const h of hits) {
+        const qc = getQueryClicks(qNorm, h.doc.url);
+        if (qc > 0) h.score *= 1 + Math.min(0.5, Math.log1p(qc) * 0.4);
+      }
+      hits.sort((a, b) => b.score - a.score);
+    }
+    // Region preference — soft boost for TLD/language matches (a boost, not a
+    // filter: hard filtering would starve a small catalog).
+    if (region !== 'all') {
+      const regConf = REGION_CONFIGS[region] || REGION_CONFIGS.all;
+      for (const h of hits) {
+        let host = '';
+        try {
+          host = new URL(h.doc.url).hostname;
+        } catch (_) {}
+        const lang = (h.doc.language || '').toLowerCase();
+        if (regConf.domains.some(d => host.endsWith(d)) || (regConf.lang !== 'en' && lang.startsWith(regConf.lang))) {
+          h.score *= 1.3;
+        }
+      }
+      hits.sort((a, b) => b.score - a.score);
+    }
+    // Optional neural stage — embedding cosine on the top-25 (reranker.ts).
+    // Off unless NEURAL_RERANK is set; failures leave scores untouched.
+    if (await rerankHits(effectiveQuery, hits)) {
+      hits.sort((a, b) => b.score - a.score);
+      scheduleStateSave(); // doc embeddings grew — persist
+    }
+    // Domain diversity — cap any single host at 3 results in the visible window;
+    // overflow pages are demoted below the fold rather than dropped.
+    {
+      const hostCounts = new Map<string, number>();
+      const head: typeof hits = [];
+      const tail: typeof hits = [];
+      for (const h of hits) {
+        let host = '';
+        try {
+          host = new URL(h.doc.url).hostname;
+        } catch (_) {}
+        const c = hostCounts.get(host) || 0;
+        if (head.length < 30 && c >= 3) {
+          tail.push(h);
+          continue;
+        }
+        hostCounts.set(host, c + 1);
+        head.push(h);
+      }
+      hits.length = 0;
+      hits.push(...head, ...tail);
+    }
+    // Cache this query's per-doc feature vectors — the click endpoint uses them
+    // to learn weight updates from "clicked vs skipped-above" pairs.
+    {
+      const qNorm = normalizeQuery(queryStr);
+      const featMap = new Map<string, number[]>();
+      for (const h of hits) if (h.features) featMap.set(h.doc.url, h.features);
+      if (recentQueryFeatures.size >= 50 && !recentQueryFeatures.has(qNorm)) {
+        const oldest = recentQueryFeatures.keys().next().value;
+        if (oldest !== undefined) recentQueryFeatures.delete(oldest);
+      }
+      recentQueryFeatures.set(qNorm, featMap);
+    }
+    let matchedPages = hits.map(h => h.doc);
+    if (blockedHostnames.size > 0 || blockedUrls.size > 0) {
+      matchedPages = matchedPages.filter(p => {
+        if (blockedUrls.has(p.url)) return false;
+        try {
+          return !isBlockedHost(new URL(p.url).hostname);
+        } catch (_) {
+          return true;
+        }
+      });
+    }
 
-    if (domainFilter) {
-      const domLower = domainFilter.toLowerCase();
-      matchedPages = matchedPages.filter(p => p.url.toLowerCase().includes(domLower));
+    if (effDomainFilter) {
+      const domLower = effDomainFilter.toLowerCase();
+      matchedPages = matchedPages.filter(p => {
+        if (ops.site) {
+          // site: is a strict host match (with subdomains), not a substring hit.
+          try {
+            const h = new URL(p.url).hostname;
+            return h === domLower || h.endsWith('.' + domLower);
+          } catch (_) {
+            return false;
+          }
+        }
+        return p.url.toLowerCase().includes(domLower);
+      });
+    }
+
+    // Operator post-filters — filetype: on URL path, "exact phrases" required
+    // verbatim in title/snippet/content. Shared by local + fallback results.
+    const passesOps = (p: ServerIndexedPage): boolean => {
+      if (ops.filetypes.length > 0) {
+        try {
+          const path = new URL(p.url).pathname.toLowerCase();
+          if (!ops.filetypes.some(e => path.endsWith('.' + e))) return false;
+        } catch (_) {
+          return false;
+        }
+      }
+      if (ops.phrases.length > 0) {
+        const text = `${p.title || ''} ${p.snippet || ''} ${p.content || ''}`.toLowerCase();
+        if (!ops.phrases.every(ph => text.includes(ph))) return false;
+      }
+      return true;
+    };
+    if (ops.filetypes.length > 0 || ops.phrases.length > 0) {
+      matchedPages = matchedPages.filter(passesOps);
     }
 
     if (minBacklinks > 0) {
@@ -1543,7 +2416,6 @@ async function startServer() {
     const firestoreCount = matchedPages.length;
     const localMatchUrls = matchedPages.map(p => p.url.toLowerCase());
     sortPages(matchedPages, sortBy);
-    matchedPages = matchedPages.slice((pageNum - 1) * pageLimit, pageNum * pageLimit);
     let fallbackTriggered = false;
     let fallbackProvider: string | null = null;
     let fallbackCount = 0;
@@ -1553,7 +2425,7 @@ async function startServer() {
     // 2. Trigger SearXNG Fallback if Firestore doesn't have enough results (or if force_fallback / page > 1 is requested)
     if (fallbackEnabled && (forceFallback || pageNum > 1 || firestoreCount < minResultsThreshold)) {
       fallbackTriggered = true;
-      const searxData = await querySearXNGFallback(queryStr, domainFilter, pageNum, region);
+      const searxData = await querySearXNGFallback(effectiveQuery, effDomainFilter, pageNum, region);
       fallbackProvider = searxData.providerUsed;
 
       const existingUrls = new Set(localMatchUrls);
@@ -1561,6 +2433,15 @@ async function startServer() {
 
       for (const item of searxData.results) {
         if (minBacklinks > 0 && (item.backlinks || 0) < minBacklinks) continue;
+        if (ops.site) {
+          try {
+            const h = new URL(item.url).hostname;
+            if (!(h === ops.site || h.endsWith('.' + ops.site))) continue;
+          } catch (_) {
+            continue;
+          }
+        }
+        if (!passesOps(item)) continue;
         const normUrl = item.url.toLowerCase();
         if (!existingUrls.has(normUrl)) {
           existingUrls.add(normUrl);
@@ -1574,6 +2455,7 @@ async function startServer() {
               auto_indexed: true
             };
             serverIndexedPages.unshift(indexedCopy);
+            syncIndex(indexedCopy);
             newlyIndexedPages.push(indexedCopy);
             autoIndexedCount++;
 
@@ -1604,17 +2486,16 @@ async function startServer() {
       trimSeeds();
     }
 
-    // Sort combined results
+    // Sort combined results, then slice out the requested page window
     sortPages(matchedPages, sortBy);
+    matchedPages = matchedPages.slice((pageNum - 1) * pageLimit, pageNum * pageLimit);
 
-    let spellcheck: string | null = null;
-    if (lowerQ === 'fastapdoc') spellcheck = 'fastapi doc';
-    else if (lowerQ === 'whereosh') spellcheck = 'whoosh';
-    else if (lowerQ === 'firestur') spellcheck = 'firestore';
+    // "Did you mean" from the index vocabulary (edit distance over real terms).
+    const spellcheck = searchIndex.spellcheck(effectiveQuery);
 
-    const relatedSearches = await fetchRelatedSearches(queryStr);
+    const relatedSearches = await fetchRelatedSearches(effectiveQuery);
 
-    res.json({
+    const payload = {
       results: matchedPages,
       firestore_count: firestoreCount,
       fallback_triggered: fallbackTriggered,
@@ -1624,7 +2505,123 @@ async function startServer() {
       new_indexed_pages: newlyIndexedPages,
       spellcheck,
       related_searches: relatedSearches
+    };
+    if (searchResponseCache.size >= SEARCH_CACHE_MAX) {
+      const oldest = searchResponseCache.keys().next().value;
+      if (oldest !== undefined) searchResponseCache.delete(oldest);
+    }
+    searchResponseCache.set(cacheKey, { at: Date.now(), payload });
+    res.json(payload);
+  });
+
+  // Click feedback — the frontend reports which result was opened so ranking
+  // can learn. Dedup'd per (client, query, url) per hour inside feedback.ts.
+  app.post('/api/search/click', (req: Request, res: Response) => {
+    try {
+      const body = req.body || {};
+      const url = typeof body.url === 'string' ? body.url : '';
+      const q = typeof body.q === 'string' ? body.q.slice(0, 200) : '';
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch (_) {
+        res.status(400).json({ error: 'Invalid url' });
+        return;
+      }
+      if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || isPrivateImageHost(parsed.hostname)) {
+        res.status(400).json({ error: 'Invalid url' });
+        return;
+      }
+      const counted = recordClick(q, url, req.ip || 'anon');
+      if (counted) {
+        const doc = serverIndexedPages.find(p => p.url === url);
+        if (doc) doc.clicks = getUrlClicks(url); // index sees it via shared doc ref
+        scheduleStateSave();
+      }
+
+      // Pairwise rank learning — results shown *above* the click were seen but
+      // skipped. For each: clicked-features should beat skipped-features.
+      const above: unknown[] = Array.isArray(body.above) ? body.above.slice(0, 10) : [];
+      const featMap = q ? recentQueryFeatures.get(normalizeQuery(q)) : undefined;
+      const clickedF = featMap?.get(url);
+      if (featMap && clickedF) {
+        let pairs = 0;
+        for (const u of above) {
+          if (typeof u !== 'string' || u === url) continue;
+          const skippedF = featMap.get(u);
+          if (skippedF) {
+            learnFromPair(clickedF, skippedF);
+            if (++pairs >= 5) break;
+          }
+        }
+        if (pairs > 0) scheduleStateSave();
+      }
+      res.json({ ok: true, counted });
+    } catch (_) {
+      res.status(500).json({ error: 'click failed' });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // OTA live updates — the deployed dist/ is offered as the latest app bundle.
+  // Version = sha256 of the zip, so every deploy automatically becomes a new
+  // update. The app polls /api/app/version at startup and stages the zip via
+  // CapacitorUpdater.next() for the next launch.
+  // -------------------------------------------------------------------------
+
+  const OTA_DIST_DIR = path.join(__dirname, 'dist');
+  let cachedAppBundle: { version: string; checksum: string; zip: Buffer } | null | undefined;
+
+  function getAppBundle() {
+    if (cachedAppBundle !== undefined) return cachedAppBundle;
+    try {
+      if (!fs.existsSync(path.join(OTA_DIST_DIR, 'index.html'))) {
+        cachedAppBundle = null;
+        return cachedAppBundle;
+      }
+      const files: Record<string, Uint8Array> = {};
+      const collect = (dir: string, prefix: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const abs = path.join(dir, entry.name);
+          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) collect(abs, rel);
+          else if (entry.isFile()) files[rel] = new Uint8Array(fs.readFileSync(abs));
+        }
+      };
+      collect(OTA_DIST_DIR, '');
+      const zip = Buffer.from(zipSync(files, { level: 6 }));
+      const checksum = crypto.createHash('sha256').update(zip).digest('hex');
+      cachedAppBundle = { version: checksum.slice(0, 16), checksum, zip };
+      return cachedAppBundle;
+    } catch (_) {
+      cachedAppBundle = null;
+      return cachedAppBundle;
+    }
+  }
+
+  app.get('/api/app/version', (req: Request, res: Response) => {
+    const bundle = getAppBundle();
+    if (!bundle) {
+      res.json({ version: 'dev', url: null });
+      return;
+    }
+    res.json({
+      version: bundle.version,
+      checksum: bundle.checksum,
+      url: `${req.protocol}://${req.get('host')}/api/app/bundle`
     });
+  });
+
+  app.get('/api/app/bundle', (_req: Request, res: Response) => {
+    const bundle = getAppBundle();
+    if (!bundle) {
+      res.status(404).json({ error: 'No bundle built' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="bundle.zip"');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(bundle.zip);
   });
 
   app.get('/api/search/images', async (req: Request, res: Response) => {
@@ -1652,12 +2649,45 @@ async function startServer() {
       color_url: item.color_url || item.url
     });
     const sendImages = async (items: ReturnType<typeof toImageItem>[]) => {
-      const withColors = await mapWithConcurrency(items, 6, async ({ color_url, ...img }) => ({
+      // Local index images lead; provider results fill the rest (deduped).
+      const merged = [...localImages];
+      for (const item of items) {
+        if (merged.length >= 30) break;
+        if (item.url && !seenImageUrls.has(item.url)) {
+          seenImageUrls.add(item.url);
+          merged.push(item);
+        }
+      }
+      const withColors = await mapWithConcurrency(merged, 6, async ({ color_url, ...img }) => ({
         ...img,
         dominant_color: color_url ? await detectDominantColor(color_url) : undefined
       }));
       res.json(withColors);
     };
+
+    // 0. Local index images — pages the crawler actually indexed. These lead
+    // the grid because they're ours, then SearXNG fills the rest.
+    const localImages: ReturnType<typeof toImageItem>[] = [];
+    const seenImageUrls = new Set<string>();
+    try {
+      for (const h of searchIndex.search(queryStr, 40)) {
+        const doc = h.doc as ServerIndexedPage;
+        if (!Array.isArray(doc.images)) continue;
+        for (const img of doc.images) {
+          if (!img.url || seenImageUrls.has(img.url)) continue;
+          if (!matchesImageQuery(queryTerms, [img.alt, doc.title])) continue;
+          seenImageUrls.add(img.url);
+          localImages.push(toImageItem({
+            url: img.url,
+            title: img.alt || doc.title,
+            source_url: doc.url,
+            color_url: img.url
+          }, localImages.length));
+          if (localImages.length >= 12) break;
+        }
+        if (localImages.length >= 12) break;
+      }
+    } catch (_) {}
 
     // 1. SearXNG image search (aggregates Bing/Google/DDG images)
     for (const baseUrl of candidateInstances.slice(0, 3)) {
@@ -1830,9 +2860,11 @@ async function startServer() {
             }
           }
           if (videos.length > 0) {
-            const sliced = videos.slice(0, 24);
-            videoSearchCache.set(cacheKey, { timestamp: Date.now(), results: sliced });
-            return sliced;
+            const sliced = videos.slice((pageNum - 1) * 24, pageNum * 24);
+            if (sliced.length > 0) {
+              boundedCacheSet(videoSearchCache, cacheKey, { timestamp: Date.now(), results: sliced }, MAX_VIDEO_CACHE_ENTRIES);
+              return sliced;
+            }
           }
         }
       }
@@ -1872,7 +2904,7 @@ async function startServer() {
               id: vidId,
               title: r.title,
               url: r.url,
-              embedUrl: embedUrl || (vidId ? `https://www.youtube-nocookie.com/embed/${vidId}?autoplay=1&rel=0` : undefined),
+              embedUrl: embedUrl || undefined,
               thumbnail: r.thumbnail || r.img_src || (ytMatch ? `https://i.ytimg.com/vi/${ytMatch[1]}/hqdefault.jpg` : ''),
               channel: r.author || (() => { try { return new URL(r.url).hostname; } catch (_) { return ''; } })(),
               duration: r.duration || r.length || '',
@@ -1883,7 +2915,7 @@ async function startServer() {
             };
           });
         if (videos.length > 0) {
-          videoSearchCache.set(cacheKey, { timestamp: Date.now(), results: videos });
+          boundedCacheSet(videoSearchCache, cacheKey, { timestamp: Date.now(), results: videos }, MAX_VIDEO_CACHE_ENTRIES);
           return videos;
         }
       } catch (_) {}
@@ -1911,7 +2943,7 @@ async function startServer() {
               thumbnail: item.videoThumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
               tags: [queryStr.toLowerCase()]
             }));
-            videoSearchCache.set(cacheKey, { timestamp: Date.now(), results: videos });
+            boundedCacheSet(videoSearchCache, cacheKey, { timestamp: Date.now(), results: videos }, MAX_VIDEO_CACHE_ENTRIES);
             return videos;
           }
         }
@@ -1955,6 +2987,20 @@ async function startServer() {
       return;
     }
 
+    // Reject loopback/private/metadata hosts — the reader must never reach
+    // into the internal network (checked again on every redirect hop).
+    let readerTarget: URL;
+    try {
+      readerTarget = new URL(rawUrl);
+    } catch (_) {
+      res.status(400).json({ error: 'Valid URL is required' });
+      return;
+    }
+    if (isPrivateImageHost(readerTarget.hostname)) {
+      res.status(400).json({ error: 'Private or internal addresses are not allowed' });
+      return;
+    }
+
     const cacheKey = rawUrl.toLowerCase();
     const cached = readerCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
@@ -1982,7 +3028,7 @@ async function startServer() {
           publishedAt: localMatch.indexed_at || new Date().toLocaleDateString(),
           source: new URL(rawUrl).hostname
         };
-        readerCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        boundedCacheSet(readerCache, cacheKey, { data: result, timestamp: Date.now() }, MAX_READER_CACHE_ENTRIES);
         res.json(result);
         return;
       }
@@ -2019,7 +3065,7 @@ async function startServer() {
                 publishedAt: new Date().toLocaleDateString(),
                 source: 'en.wikipedia.org'
               };
-              readerCache.set(cacheKey, { data: result, timestamp: Date.now() });
+              boundedCacheSet(readerCache, cacheKey, { data: result, timestamp: Date.now() }, MAX_READER_CACHE_ENTRIES);
               res.json(result);
               return;
             }
@@ -2031,19 +3077,12 @@ async function startServer() {
       let extractedTitle = queryTitle;
       let extractedContent = '';
       let extractedByline = '';
-      const domain = new URL(rawUrl).hostname;
+      const domain = readerTarget.hostname;
 
       try {
-        const fetchRes = await fetch(rawUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 (IsaacReader/2.0)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-          },
-          signal: AbortSignal.timeout(4000)
-        });
+        const html = await fetchPublicPage(rawUrl, 4000);
 
-        if (fetchRes.ok) {
-          const html = await fetchRes.text();
+        if (html) {
           const titleTagMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
           if (titleTagMatch && !extractedTitle) {
             extractedTitle = titleTagMatch[1].trim();
@@ -2092,7 +3131,7 @@ async function startServer() {
           publishedAt: new Date().toLocaleDateString(),
           source: domain
         };
-        readerCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        boundedCacheSet(readerCache, cacheKey, { data: result, timestamp: Date.now() }, MAX_READER_CACHE_ENTRIES);
         res.json(result);
         return;
       }
@@ -2119,7 +3158,7 @@ async function startServer() {
         source: domain
       };
 
-      readerCache.set(cacheKey, { data: fallbackResult, timestamp: Date.now() });
+      boundedCacheSet(readerCache, cacheKey, { data: fallbackResult, timestamp: Date.now() }, MAX_READER_CACHE_ENTRIES);
       res.json(fallbackResult);
     } catch (_err) {
       res.status(500).json({ error: 'Failed to extract readable story' });
@@ -2138,6 +3177,7 @@ async function startServer() {
     const target = serverIndexedPages.find(p => p.id === req.params.id);
     if (target) {
       target.likes = (target.likes || 0) + 1;
+      syncIndex(target);
     }
     res.json({ status: 'liked', id: req.params.id, likes: target?.likes });
   });
@@ -2175,8 +3215,10 @@ async function startServer() {
       };
       if (existingIdx !== -1) {
         serverIndexedPages[existingIdx] = { ...serverIndexedPages[existingIdx], ...newPage };
+        syncIndex(serverIndexedPages[existingIdx]);
       } else {
         serverIndexedPages.unshift(newPage);
+        syncIndex(newPage);
         trimCatalog();
       }
       res.json({ status: 'indexed', page: newPage });
@@ -2197,6 +3239,16 @@ async function startServer() {
     }
 
     const suggestionsSet = new Set<string>();
+
+    // 0. Own signals first — the query log and index vocabulary are the
+    // engine's real autocomplete corpus.
+    const lowerQ = query.toLowerCase();
+    const logMatches = [...queryLog.entries()]
+      .filter(([t]) => t.startsWith(lowerQ) || t.includes(lowerQ))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit);
+    for (const [t] of logMatches) suggestionsSet.add(t);
+    for (const t of searchIndex.prefixTerms(lowerQ, limit)) suggestionsSet.add(t);
 
     // 1. Query Google Autocomplete (fast, high-quality, real query suggestions)
     try {
@@ -2253,7 +3305,6 @@ async function startServer() {
     }
 
     // 4. In-memory indexed pages (keywords & tags)
-    const lowerQ = query.toLowerCase();
     for (const page of serverIndexedPages) {
       if (suggestionsSet.size >= limit * 2) break;
       const kws = Array.isArray(page.keywords) ? page.keywords : String(page.keywords || '').split(',');
@@ -2577,8 +3628,14 @@ CRITICAL FORMATTING RULE:
               const reader = groqRes.body.getReader();
               const decoder = new TextDecoder();
               let sseBuffer = '';
+              let clientDisconnected = false;
+              req.on('close', () => {
+                clientDisconnected = true;
+                reader.cancel().catch(() => {});
+              });
 
               while (true) {
+                if (clientDisconnected) break;
                 const { value, done } = await reader.read();
                 if (done) break;
                 sseBuffer += decoder.decode(value, { stream: true });
@@ -2794,8 +3851,8 @@ Return ONLY the questions, one per line, with no numbering or bullets.`;
     // fallback gracefully so the browser never crashes with HTML MIME type error
     app.use((req: Request, res: Response, next: NextFunction) => {
       if (req.path.startsWith('/assets/')) {
-        const candidate = path.join(distPath, req.path);
-        if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
+        const candidate = path.resolve(distPath, `.${req.path}`);
+        if (candidate.startsWith(distPath + path.sep) && fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
           res.sendFile(candidate);
           return;
         }
@@ -2809,6 +3866,51 @@ Return ONLY the questions, one per line, with no numbering or bullets.`;
     vite.transformRequest('/src/main.tsx').catch(() => {});
     vite.transformRequest('/src/App.tsx').catch(() => {});
   }
+
+  // Scheduler tick — fires scheduled crawls (schedule.start_url) and, when
+  // auto-crawl is enabled, a seed-list crawl every 6 hours.
+  let lastAutoCrawlAt = 0;
+  let lastRecrawlAt = 0;
+  const scheduleFmt = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 19);
+  setInterval(() => {
+    try {
+      const now = Date.now();
+      if (serverSchedule.enabled) {
+        const nextTs = new Date(serverSchedule.next_run.replace(' ', 'T')).getTime();
+        if (Number.isFinite(nextTs) && now >= nextTs) {
+          const seeds = isHttpUrl(serverSchedule.start_url)
+            ? [serverSchedule.start_url]
+            : serverSeeds.map(s => s.url).filter(isHttpUrl);
+          const result = startCrawl({ seeds, triggeredBy: 'scheduled' });
+          serverSchedule.last_run = scheduleFmt(new Date());
+          const intervalMs = serverSchedule.interval === 'weekly' ? 7 * 86400000 : 86400000;
+          serverSchedule.next_run = scheduleFmt(new Date(now + intervalMs));
+          if ('error' in result) console.log(`[crawler] scheduled crawl skipped: ${result.error}`);
+        }
+      }
+      if (serverAutoCrawlEnabled && now - lastAutoCrawlAt >= 6 * 3600 * 1000) {
+        lastAutoCrawlAt = now;
+        const result = startCrawl({
+          seeds: serverSeeds.map(s => s.url).filter(isHttpUrl),
+          triggeredBy: 'auto'
+        });
+        if ('error' in result && result.error !== 'A crawl is already running') {
+          console.log(`[crawler] auto-crawl skipped: ${result.error}`);
+        }
+      }
+      // Daily stale-page sweep — re-fetches the oldest indexed pages so the
+      // catalog tracks the live web. Small batches; dead pages drop out.
+      if (!recrawlRunning && now - lastRecrawlAt >= 24 * 3600 * 1000) {
+        lastRecrawlAt = now;
+        recrawlRunning = true;
+        void recrawlStalePages(14, 20)
+          .catch(() => {})
+          .finally(() => {
+            recrawlRunning = false;
+          });
+      }
+    } catch (_) {}
+  }, 60 * 1000).unref();
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Isaac Search + Fireplexity v2 server listening on http://0.0.0.0:${PORT}`);

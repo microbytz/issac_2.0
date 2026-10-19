@@ -109,7 +109,8 @@ export function matchesSearchSyntax(
   if (syntax.siteFilter) {
     try {
       const parsedUrl = new URL(item.url || '');
-      if (!parsedUrl.hostname.toLowerCase().includes(syntax.siteFilter)) {
+      const host = parsedUrl.hostname.toLowerCase();
+      if (host !== syntax.siteFilter && !host.endsWith(`.${syntax.siteFilter}`)) {
         return false;
       }
     } catch (_) {
