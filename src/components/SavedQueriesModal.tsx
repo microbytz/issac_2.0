@@ -446,7 +446,7 @@ export const SavedQueriesModal: React.FC<SavedQueriesModalProps> = ({
               <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
               <div className="text-[11px] leading-relaxed">
                 <span className="font-semibold text-slate-300">How Search Alerts work: </span>
-                Isaac continuously checks newly indexed web pages, crawler discoveries, and live news for keywords matching your alerts. You can jump directly into any query feed with fresh results at any time.
+                Alerts are saved queries stored in this browser. Isaac doesn't check them in the background; click an alert to re-run it and see the latest results.
               </div>
             </div>
           </div>
