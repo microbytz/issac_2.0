@@ -40,27 +40,7 @@ export const getSavedAlerts = (): SavedAlert[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      // Default initial starter alerts
-      const initial: SavedAlert[] = [
-        {
-          id: 'alert_1',
-          query: 'fastapi whoosh search',
-          created_at: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
-          frequency: 'daily',
-          notes: 'Full-text search engine microservice updates',
-          unreadCount: 2
-        },
-        {
-          id: 'alert_2',
-          query: 'quantum computing breakthroughs',
-          created_at: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
-          frequency: 'weekly',
-          notes: 'Track major quantum hardware benchmarks',
-          unreadCount: 5
-        }
-      ];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-      return initial;
+      return [];
     }
     return JSON.parse(raw);
   } catch {
@@ -122,7 +102,7 @@ export const SavedQueriesModal: React.FC<SavedQueriesModalProps> = ({
       created_at: new Date().toISOString(),
       frequency: newFrequency,
       notes: newNotesInput.trim() || undefined,
-      unreadCount: 1
+      unreadCount: 0
     };
 
     const updated = [newAlert, ...alerts];
@@ -130,7 +110,7 @@ export const SavedQueriesModal: React.FC<SavedQueriesModalProps> = ({
     saveAlertsToStorage(updated);
     setIsAdding(false);
     setNewNotesInput('');
-    onNotify?.(`Search alert created for "${cleanQ}". You will receive topic monitors!`, 'success');
+    onNotify?.(`Search alert created for "${cleanQ}". Re-run it from this list to check for new results.`, 'success');
   };
 
   const handleDeleteAlert = (id: string, q: string) => {
