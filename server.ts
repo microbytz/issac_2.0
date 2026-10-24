@@ -59,6 +59,7 @@ import type { CrawledPage } from './crawler.ts';
 import { queryCCIndex, fetchWarcHtml } from './commonCrawl.ts';
 import type { CCRecord } from './commonCrawl.ts';
 import { InvertedIndex } from './searchIndex.ts';
+import { searchWeb, queryTerms, termCoverage, WEB_SOURCE_LABEL } from './shared/webSearch.ts';
 import { getWeights, importWeights, exportWeights, learnFromPair } from './ranker.ts';
 import { rerankHits, exportDocEmbeddings, importDocEmbeddings } from './reranker.ts';
 import {
@@ -689,6 +690,8 @@ interface ServerIndexedPage {
   is_searxng_fallback?: boolean;
   fallback_source?: string;
   searxng_engines?: string[];
+  web_score?: number;
+  web_coverage?: number;
   auto_indexed?: boolean;
   crawled?: boolean;
   clicks?: number;
@@ -911,7 +914,10 @@ function loadEngineState() {
     const st = JSON.parse(raw);
     if (Array.isArray(st.pages)) {
       const valid = st.pages.filter(
-        (p: any) => p && typeof p.id === 'string' && typeof p.url === 'string' && typeof p.title === 'string'
+        (p: any) =>
+          p && typeof p.id === 'string' && typeof p.url === 'string' && typeof p.title === 'string' &&
+          // DuckDuckGo category links were auto-indexed by the old fallback; they're not documents.
+          !/^https?:\/\/(www\.)?duckduckgo\.com\/c\//i.test(p.url)
       ).slice(0, MAX_CATALOG_PAGES);
       // Persisted pages win over the hardcoded defaults (they may carry crawl
       // updates/likes); defaults only fill in URLs the file doesn't have.
@@ -1319,175 +1325,53 @@ async function querySearXNGFallback(
     }
   }
 
-  // 2. Zero-Cost Open Metasearch Cascade (DuckDuckGo Instant Answer + Wikipedia + HackerNews Algolia)
-  const aggregated: ServerIndexedPage[] = [];
-  const seenUrls = new Set<string>();
-
-  const ddgPromise = (async () => {
+  // 2. Live web cascade (Brave Search API when keyed + Stack Overflow +
+  // Wikipedia + HN), fused and relevance-gated in shared/webSearch.ts.
+  const countryCode = region === 'all' ? 'ALL' : region === 'uk' ? 'GB' : region.toUpperCase();
+  const { hits, sources } = await searchWeb(effectiveQuery, {
+    page: safePage,
+    country: countryCode,
+    braveApiKey: process.env.BRAVE_SEARCH_API_KEY?.trim()
+  });
+  const now = new Date().toUTCString();
+  let mappedWeb: ServerIndexedPage[] = hits.map((h, idx) => {
+    let hostname = '';
     try {
-      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(effectiveQuery)}&format=json&no_html=1&skip_disambig=1&kl=${regConf.ddgKl}`;
-      const res = await fetch(ddgUrl, { signal: AbortSignal.timeout(3000) });
-      if (!res.ok) return;
-      const data: any = await res.json();
-
-      if (safePage === 1 && data?.AbstractURL && data?.AbstractText && !seenUrls.has(data.AbstractURL)) {
-        seenUrls.add(data.AbstractURL);
-        aggregated.push({
-          id: `searxng_ddg_abs_${Date.now()}`,
-          url: data.AbstractURL,
-          canonical_url: data.AbstractURL,
-          title: data.Heading || `${query} — Overview`,
-          snippet: cleanScrapedExcerpt(data.AbstractText, 280),
-          content: data.AbstractText,
-          backlinks: 24,
-          indexed_at: new Date().toUTCString(),
-          cache_hit: false,
-          likes: 32,
-          author: data.AbstractSource || 'DuckDuckGo Instant Answer',
-          language: 'English',
-          tags: extractTopicalTags(query, data.Heading || query, data.AbstractText),
-          meta_description: cleanScrapedExcerpt(data.AbstractText, 200),
-          keywords: query.split(/\s+/).filter(Boolean),
-          is_searxng_fallback: true,
-          fallback_source: 'SearXNG Metasearch (DuckDuckGo)',
-          searxng_engines: ['duckduckgo']
-        });
-      }
-
-      const related = Array.isArray(data?.RelatedTopics) ? data.RelatedTopics : [];
-      const startRel = (safePage - 1) * 10;
-      for (const topic of related.slice(startRel, startRel + 10)) {
-        const topicUrl = topic?.FirstURL;
-        const topicText = topic?.Text;
-        if (topicUrl && topicText && !seenUrls.has(topicUrl)) {
-          seenUrls.add(topicUrl);
-          const titlePart = topicText.split(' - ')[0] || topicText.slice(0, 65);
-          aggregated.push({
-            id: `searxng_ddg_p${safePage}_${Date.now()}_${aggregated.length}`,
-            url: topicUrl,
-            canonical_url: topicUrl,
-            title: titlePart,
-            snippet: cleanScrapedExcerpt(topicText, 260),
-            content: topicText,
-            backlinks: 11,
-            indexed_at: new Date().toUTCString(),
-            cache_hit: false,
-            likes: 14,
-            author: 'DuckDuckGo',
-            language: 'English',
-            tags: extractTopicalTags(query, titlePart, topicText),
-            meta_description: cleanScrapedExcerpt(topicText, 200),
-            keywords: query.split(/\s+/).filter(Boolean),
-            is_searxng_fallback: true,
-            fallback_source: 'SearXNG Metasearch (DuckDuckGo)',
-            searxng_engines: ['duckduckgo']
-          });
-        }
-      }
+      hostname = new URL(h.url).hostname.replace(/^www\./, '');
     } catch (_) {}
-  })();
+    const label = WEB_SOURCE_LABEL[h.source];
+    return {
+      id: `web_${h.source}_p${safePage}_${Date.now()}_${idx}`,
+      url: h.url,
+      canonical_url: h.url,
+      title: h.title,
+      snippet: cleanScrapedExcerpt(h.snippet, 280) || h.title,
+      content: h.snippet,
+      backlinks: 0,
+      indexed_at: h.published_at || now,
+      cache_hit: false,
+      likes: 0,
+      author: hostname || label,
+      language: 'English',
+      tags: extractTopicalTags(query, h.title, h.snippet),
+      meta_description: cleanScrapedExcerpt(h.snippet, 200),
+      keywords: query.split(/\s+/).filter(Boolean),
+      is_searxng_fallback: true,
+      fallback_source: label,
+      searxng_engines: [h.source],
+      web_score: h.score,
+      web_coverage: h.coverage
+    };
+  });
 
-  const wikiPromise = (async () => {
-    try {
-      const wikiOffset = (safePage - 1) * 10;
-      const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(
-        effectiveQuery
-      )}&gsrlimit=10&gsroffset=${wikiOffset}&prop=extracts|info&exintro=1&explaintext=1&inprop=url&format=json&origin=*`;
-      const res = await fetch(wikiUrl, {
-        headers: { 'User-Agent': 'IsaacSearchEngine/2.0' },
-        signal: AbortSignal.timeout(3200)
-      });
-      if (!res.ok) return;
-      const data: any = await res.json();
-      const pages = data?.query?.pages ? Object.values(data.query.pages) : [];
-      for (const p of pages as any[]) {
-        const pageUrl = p.fullurl || `https://en.wikipedia.org/?curid=${p.pageid}`;
-        if (pageUrl && p.extract && !seenUrls.has(pageUrl)) {
-          seenUrls.add(pageUrl);
-          const snippet = cleanScrapedExcerpt(p.extract, 280);
-          aggregated.push({
-            id: `searxng_wiki_p${safePage}_${p.pageid || Date.now()}_${aggregated.length}`,
-            url: pageUrl,
-            canonical_url: pageUrl,
-            title: `${p.title} — Wikipedia`,
-            snippet,
-            content: p.extract,
-            backlinks: Math.max(8, 28 - safePage * 2),
-            indexed_at: new Date().toUTCString(),
-            cache_hit: false,
-            likes: Math.max(5, 25 - safePage * 2),
-            author: 'Wikipedia Contributors',
-            language: 'English',
-            tags: extractTopicalTags(query, p.title, snippet),
-            meta_description: snippet,
-            keywords: query.split(/\s+/).filter(Boolean),
-            is_searxng_fallback: true,
-            fallback_source: 'SearXNG Metasearch (Wikipedia)',
-            searxng_engines: ['wikipedia']
-          });
-        }
-      }
-    } catch (_) {}
-  })();
-
-  const hnPromise = (async () => {
-    try {
-      const hnPage = safePage - 1;
-      const hnUrl = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(
-        effectiveQuery
-      )}&tags=story&hitsPerPage=10&page=${hnPage}`;
-      const res = await fetch(hnUrl, { signal: AbortSignal.timeout(3200) });
-      if (!res.ok) return;
-      const data: any = await res.json();
-      const hits = Array.isArray(data?.hits) ? data.hits : [];
-      for (const hit of hits) {
-        const storyUrl = hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`;
-        if (!storyUrl || seenUrls.has(storyUrl)) continue;
-        seenUrls.add(storyUrl);
-        let hostname = 'news.ycombinator.com';
-        try {
-          hostname = new URL(storyUrl).hostname.replace('www.', '');
-        } catch (_) {}
-        const rawText = hit.story_text?.replace(/<[^>]+>/g, '') || '';
-        const snippet =
-          cleanScrapedExcerpt(rawText, 240) ||
-          `${hit.title} — Technical discussion & benchmark reference on ${hostname} (${hit.points || 0} points, ${hit.num_comments || 0} comments).`;
-        aggregated.push({
-          id: `searxng_hn_p${safePage}_${hit.objectID || Date.now()}`,
-          url: storyUrl,
-          canonical_url: storyUrl,
-          title: hit.title || storyUrl,
-          snippet,
-          content: rawText || snippet,
-          backlinks: Math.max(2, Math.round((hit.points || 10) / 15)),
-          indexed_at: hit.created_at ? new Date(hit.created_at).toUTCString() : new Date().toUTCString(),
-          cache_hit: false,
-          likes: hit.points || 12,
-          author: hit.author || hostname,
-          language: 'English',
-          tags: extractTopicalTags(query, hit.title || '', snippet),
-          meta_description: snippet,
-          keywords: query.split(/\s+/).filter(Boolean),
-          is_searxng_fallback: true,
-          fallback_source: 'SearXNG Metasearch (HN Algolia)',
-          searxng_engines: ['hackernews', 'algolia']
-        });
-      }
-    } catch (_) {}
-  })();
-
-  await Promise.all([ddgPromise, wikiPromise, hnPromise]);
-
-  // Apply domain filter if requested
-  let filtered = aggregated;
   if (domainFilter?.trim()) {
     const dom = domainFilter.toLowerCase().trim();
-    filtered = aggregated.filter(item => item.url.toLowerCase().includes(dom));
+    mappedWeb = mappedWeb.filter(item => item.url.toLowerCase().includes(dom));
   }
 
   return {
-    results: filtered.slice(0, 30),
-    providerUsed: 'SearXNG Metasearch (DDG + Wikipedia + HN)'
+    results: mappedWeb.slice(0, 30),
+    providerUsed: sources.length > 0 ? `Live Web (${sources.map(src => WEB_SOURCE_LABEL[src]).join(' + ')})` : 'Live Web (no source responded)'
   };
 }
 
@@ -2219,6 +2103,19 @@ async function startServer() {
     return { clean: clean.replace(/\s+/g, ' ').trim(), site, filetypes, phrases, excluded };
   }
 
+  // Live web search only (same contract as functions/api/web-search.ts on
+  // Cloudflare Pages) — used by the client fallback.
+  app.get('/api/web-search', async (req: Request, res: Response) => {
+    const q = String(req.query.q || '').trim().slice(0, 300);
+    const page = Math.min(10, Math.max(1, Number(req.query.page) || 1));
+    const country = String(req.query.country || 'ALL');
+    if (!q) {
+      res.json({ hits: [], sources: [] });
+      return;
+    }
+    res.json(await searchWeb(q, { page, country, braveApiKey: process.env.BRAVE_SEARCH_API_KEY?.trim() }));
+  });
+
   app.get('/api/search', async (req: Request, res: Response) => {
     const queryStr = String(req.query.q || '').trim();
     const pageNum = Math.max(1, Number(req.query.page) || 1);
@@ -2413,6 +2310,24 @@ async function startServer() {
       });
     }
 
+    // Term-coverage gate: a multi-word query shouldn't be "answered" by pages
+    // that only match one word of it (or only PRF/synonym expansions). Pages
+    // covering every term are "strong" — only those suppress the web fallback.
+    const relTerms = queryTerms(effectiveQuery);
+    const localCoverage = new Map<string, number>();
+    for (const p of matchedPages) {
+      const text = `${p.title || ''} ${p.snippet || ''} ${p.meta_description || ''} ${(p.content || '').slice(0, 8000)} ${p.url.replace(/[/_.:-]+/g, ' ')}`;
+      localCoverage.set(p.url, termCoverage(relTerms, text));
+    }
+    if (relTerms.length >= 2) {
+      matchedPages = matchedPages.filter(p => (localCoverage.get(p.url) || 0) >= 0.5);
+    }
+    // Snippet-only stubs auto-indexed from earlier web fallbacks don't count:
+    // otherwise one past fallback would permanently stop live results for a query.
+    const strongLocalCount = matchedPages.filter(
+      p => (localCoverage.get(p.url) || 0) >= 1 && !(p.is_searxng_fallback && !p.crawled)
+    ).length;
+
     const firestoreCount = matchedPages.length;
     const localMatchUrls = matchedPages.map(p => p.url.toLowerCase());
     sortPages(matchedPages, sortBy);
@@ -2423,7 +2338,7 @@ async function startServer() {
     const newlyIndexedPages: ServerIndexedPage[] = [];
 
     // 2. Trigger SearXNG Fallback if Firestore doesn't have enough results (or if force_fallback / page > 1 is requested)
-    if (fallbackEnabled && (forceFallback || pageNum > 1 || firestoreCount < minResultsThreshold)) {
+    if (fallbackEnabled && (forceFallback || pageNum > 1 || strongLocalCount < minResultsThreshold)) {
       fallbackTriggered = true;
       const searxData = await querySearXNGFallback(effectiveQuery, effDomainFilter, pageNum, region);
       fallbackProvider = searxData.providerUsed;
@@ -2486,8 +2401,22 @@ async function startServer() {
       trimSeeds();
     }
 
-    // Sort combined results, then slice out the requested page window
+    // Sort combined results, then slice out the requested page window. For
+    // relevance order: full-coverage local pages, then live web results (already
+    // fused/ranked), then partial local matches.
     sortPages(matchedPages, sortBy);
+    if (sortBy === 'relevance') {
+      const strong: ServerIndexedPage[] = [];
+      const web: ServerIndexedPage[] = [];
+      const partial: ServerIndexedPage[] = [];
+      for (const p of matchedPages) {
+        const cov = localCoverage.get(p.url);
+        if (cov === undefined) web.push(p);
+        else if (cov >= 1) strong.push(p);
+        else partial.push(p);
+      }
+      matchedPages = [...strong, ...web, ...partial];
+    }
     matchedPages = matchedPages.slice((pageNum - 1) * pageLimit, pageNum * pageLimit);
 
     // "Did you mean" from the index vocabulary (edit distance over real terms).

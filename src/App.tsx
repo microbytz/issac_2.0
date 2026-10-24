@@ -4296,9 +4296,8 @@ export default function App() {
             bm25_details: item.bm25_details ?? bmData?.details
           };
         });
-        if (sortBy === 'relevance') {
-          enrichedResults.sort((a: any, b: any) => (b.bm25_score || 0) - (a.bm25_score || 0));
-        }
+        // The server already ranked by full-content BM25 + coverage + live web
+        // fusion; re-sorting on the client's snippet-only BM25 would undo that.
         setSearchResults(enrichedResults);
         setSpellcheck(data.spellcheck || null);
 
@@ -4355,15 +4354,21 @@ export default function App() {
           );
         });
 
-        // If no local offline matches and search fallback is enabled, fetch directly from open web APIs (Wikipedia / Hacker News)
-        if (filtered.length === 0 && searxngFallbackEnabled) {
+        // Too few local matches → fetch live web results (fused + relevance-ranked).
+        let webResultIds = new Set<string>();
+        if (filtered.length < 3 && searxngFallbackEnabled) {
           try {
-            const directWebResults = await fetchClientSideWebResults(queryStr);
+            const localUrls = new Set(filtered.map(p => (p.url || '').toLowerCase()));
+            const directWebResults = (await fetchClientSideWebResults(queryStr)).filter(
+              r => !localUrls.has(r.url.toLowerCase())
+            );
+            if (requestId !== searchRequestIdRef.current) return;
             if (directWebResults.length > 0) {
-              filtered = directWebResults as PageItem[];
+              webResultIds = new Set(directWebResults.map(r => r.id));
+              filtered = [...filtered, ...(directWebResults as PageItem[])];
               setLastSearchFallbackMeta({
                 triggered: true,
-                firestoreCount: 0,
+                firestoreCount: localUrls.size,
                 fallbackCount: directWebResults.length,
                 provider: 'Open Metasearch (Direct Mobile/Offline)',
                 autoIndexedCount: searxngAutoIndex ? directWebResults.length : 0
@@ -4446,7 +4451,10 @@ export default function App() {
 
         // Apply sorting client-side
         if (sortBy === 'relevance') {
-          filtered.sort((a, b) => scoreWhooshItem(b) - scoreWhooshItem(a));
+          // Local matches by keyword score, then live web results in their fused order.
+          const localPart = filtered.filter(p => !webResultIds.has(p.id));
+          localPart.sort((a, b) => scoreWhooshItem(b) - scoreWhooshItem(a));
+          filtered = [...localPart, ...filtered.filter(p => webResultIds.has(p.id))];
         } else if (sortBy === 'likes_desc') {
           filtered.sort((a, b) => (b.likes || 0) - (a.likes || 0));
         } else if (sortBy === 'date_desc') {

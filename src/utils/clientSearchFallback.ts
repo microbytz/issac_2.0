@@ -2,8 +2,12 @@
  * Direct Client-Side Open Search Fallback
  * 
  * Used when the backend server is unreachable (e.g. mobile device offline or network error).
- * Queries public, CORS-enabled endpoints (Wikipedia and Hacker News Algolia) directly from the client.
+ * Queries public, CORS-enabled endpoints (Wikipedia, Stack Overflow, Hacker News) directly from the client.
  */
+
+import { searchWeb, normalizeUrlKey, WEB_SOURCE_LABEL } from '../../shared/webSearch';
+import type { WebHit } from '../../shared/webSearch';
+import { getBackendBaseUrl } from './apiConfig';
 
 export interface FallbackResultItem {
   id: string;
@@ -28,96 +32,55 @@ export interface FallbackResultItem {
   searxng_engines?: string[];
 }
 
-export async function fetchClientSideWebResults(query: string): Promise<FallbackResultItem[]> {
+/**
+ * Live web results for the browser when the Express backend isn't reachable.
+ * Prefers the deployment's /api/web-search (Cloudflare Pages Function, which can
+ * use a Brave Search key), then queries the keyless CORS sources directly.
+ * Results come back fused and relevance-ordered (see shared/webSearch.ts).
+ */
+export async function fetchClientSideWebResults(query: string, page = 1): Promise<FallbackResultItem[]> {
   const cleanQ = query.trim();
   if (!cleanQ) return [];
 
-  const results: FallbackResultItem[] = [];
-  const seenUrls = new Set<string>();
-
-  // 1. Wikipedia Open Search API (CORS origin=*)
-  const wikiPromise = (async () => {
+  let hits: WebHit[] = [];
+  try {
+    const res = await fetch(`${getBackendBaseUrl()}/api/web-search?q=${encodeURIComponent(cleanQ)}&page=${page}`, {
+      signal: AbortSignal.timeout(6000)
+    });
+    if (res.ok && (res.headers.get('content-type') || '').includes('application/json')) {
+      const data = await res.json();
+      if (Array.isArray(data?.hits)) hits = data.hits;
+    }
+  } catch (_) {}
+  if (hits.length === 0) {
     try {
-      const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanQ)}&utf8=&format=json&origin=*`;
-      const res = await fetch(wikiUrl, { signal: AbortSignal.timeout(3500) });
-      if (res.ok) {
-        const data = await res.json();
-        const searchList = data?.query?.search || [];
-        for (const item of searchList) {
-          const pageUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/\s+/g, '_'))}`;
-          if (!seenUrls.has(pageUrl)) {
-            seenUrls.add(pageUrl);
-            const snippetText = (item.snippet || '')
-              .replace(/<span class="searchmatch">/g, '')
-              .replace(/<\/span>/g, '')
-              .replace(/<[^>]+>/g, '');
-            results.push({
-              id: `client_wiki_${item.pageid || Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-              url: pageUrl,
-              canonical_url: pageUrl,
-              title: `${item.title} — Wikipedia`,
-              snippet: snippetText || `Wikipedia overview of ${item.title}.`,
-              content: snippetText,
-              backlinks: 14 + (item.wordcount ? Math.min(30, Math.floor(item.wordcount / 100)) : 5),
-              indexed_at: new Date().toUTCString(),
-              likes: 42 + Math.floor(Math.random() * 20),
-              tags: ['wikipedia', 'reference', 'encyclopedia', cleanQ.toLowerCase().slice(0, 15)],
-              author: 'Wikipedia Contributors',
-              language: 'en',
-              is_searxng_fallback: true,
-              fallback_source: 'wikipedia-client',
-              searxng_engines: ['wikipedia']
-            });
-          }
-        }
-      }
+      hits = (await searchWeb(cleanQ, { page })).hits;
     } catch (_) {}
-  })();
+  }
 
-  // 2. Hacker News Algolia API (Public CORS)
-  const hnPromise = (async () => {
+  const now = new Date().toUTCString();
+  return hits.map((h, idx) => {
+    let hostname = '';
     try {
-      const hnUrl = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(cleanQ)}&tags=story&hitsPerPage=6`;
-      const res = await fetch(hnUrl, { signal: AbortSignal.timeout(3500) });
-      if (res.ok) {
-        const data = await res.json();
-        const hits = Array.isArray(data?.hits) ? data.hits : [];
-        for (const hit of hits) {
-          const storyUrl = hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`;
-          if (!seenUrls.has(storyUrl)) {
-            seenUrls.add(storyUrl);
-            let hostname = 'news.ycombinator.com';
-            try {
-              hostname = new URL(storyUrl).hostname.replace('www.', '');
-            } catch (_) {}
-
-            const snippet = hit.story_text
-              ? hit.story_text.replace(/<[^>]+>/g, '').slice(0, 240)
-              : `${hit.points || 0} points • ${hit.num_comments || 0} comments on Hacker News (${hostname})`;
-
-            results.push({
-              id: `client_hn_${hit.objectID || Date.now()}`,
-              url: storyUrl,
-              canonical_url: storyUrl,
-              title: hit.title || 'Discussion on Hacker News',
-              snippet: snippet,
-              content: snippet,
-              backlinks: Math.min(50, (hit.num_comments || 0) + 2),
-              indexed_at: hit.created_at ? new Date(hit.created_at).toUTCString() : new Date().toUTCString(),
-              likes: hit.points || 15,
-              tags: ['news', hostname, 'discussion', cleanQ.toLowerCase().slice(0, 15)],
-              author: hit.author || hostname,
-              language: 'en',
-              is_searxng_fallback: true,
-              fallback_source: 'hackernews-client',
-              searxng_engines: ['hackernews']
-            });
-          }
-        }
-      }
+      hostname = new URL(h.url).hostname.replace(/^www\./, '');
     } catch (_) {}
-  })();
-
-  await Promise.allSettled([wikiPromise, hnPromise]);
-  return results;
+    return {
+      id: `client_web_${h.source}_${idx}_${normalizeUrlKey(h.url).slice(0, 40)}`,
+      url: h.url,
+      canonical_url: h.url,
+      title: h.title,
+      snippet: h.snippet || h.title,
+      content: h.snippet,
+      backlinks: 0,
+      indexed_at: h.published_at || now,
+      likes: 0,
+      tags: [h.source, hostname].filter(Boolean),
+      author: hostname || WEB_SOURCE_LABEL[h.source],
+      language: 'en',
+      score: h.score,
+      is_searxng_fallback: true,
+      fallback_source: WEB_SOURCE_LABEL[h.source],
+      searxng_engines: [h.source]
+    };
+  });
 }
