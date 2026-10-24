@@ -9183,7 +9183,7 @@ export default function App() {
 
             {/* Search Tabs (All, Images, Videos, News) + SafeSearch Toggle */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 mt-2 pb-px select-none">
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0 max-w-full">
                 <button
                   id="search-mode-all-btn"
                   onClick={() => setSearchMode('all')}
@@ -9976,7 +9976,7 @@ export default function App() {
 
                     {/* Title hyperlink with In-App Story Reader trigger */}
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className={`font-bold text-slate-100 group-hover:text-blue-300 transition-colors flex-1 ${
+                      <h3 className={`font-bold text-slate-100 group-hover:text-blue-300 transition-colors flex-1 min-w-0 ${
                         fontSizePreference === 'small' ? 'text-base' : fontSizePreference === 'large' ? 'text-xl' : 'text-lg'
                       }`}>
                         <button 
@@ -9985,7 +9985,7 @@ export default function App() {
                           className="hover:underline flex items-center gap-1.5 text-left cursor-pointer text-slate-100 group-hover:text-blue-300 transition-colors"
                           title="Read full story in app without leaving"
                         >
-                          <HighlightText text={item.title} query={searchQuery} innerQuery={searchWithinQuery} />
+                          <span className="min-w-0 break-words"><HighlightText text={item.title} query={searchQuery} innerQuery={searchWithinQuery} /></span>
                           {item.rich && (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/20 shrink-0" title={`Structured data: ${item.rich.type}${item.rich.date_published ? ` · ${item.rich.date_published.slice(0, 10)}` : ''}`}>
                               {item.rich.rating
