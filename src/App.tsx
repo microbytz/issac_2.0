@@ -4167,8 +4167,12 @@ export default function App() {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
-      const win = window.open(url, '_blank', 'noopener');
-      if (!win) window.location.href = url;
+      // window.open with the 'noopener' feature always returns null, which was
+      // misread as "popup blocked" and also navigated this tab away. Open
+      // normally and detach the opener instead.
+      const win = window.open(url, '_blank');
+      if (win) win.opener = null;
+      else window.location.href = url;
     } catch (_) {}
   };
 
