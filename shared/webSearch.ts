@@ -243,7 +243,33 @@ const FETCHERS: Record<WebSource, (q: string, opts: Required<Pick<WebSearchOptio
 };
 
 /** Queries every available source in parallel and returns fused, relevance-ordered hits. */
+const QUESTION_FILLER = new Set([
+  'compare', 'comparison', 'difference', 'differences', 'between', 'explain', 'modern', 'work', 'works', 'use',
+  'using', 'used', 'should', 'would', 'could', 'there', 'about', 'some', 'into', 'their', 'than', 'versus', 'tell'
+]);
+
+/**
+ * Keyword APIs (Stack Exchange, Wikipedia, HN) return nothing for long
+ * natural-language questions, so long queries are reduced to their key terms,
+ * retrying shorter if needed.
+ */
+function keywordVariants(query: string): string[] {
+  const terms = queryTerms(query).filter(t => !QUESTION_FILLER.has(t));
+  if (queryTerms(query).length <= 5) return [query];
+  return Array.from(new Set([terms.slice(0, 5).join(' '), terms.slice(0, 3).join(' ')])).filter(Boolean);
+}
+
 export async function searchWeb(query: string, options: WebSearchOptions = {}): Promise<{ hits: WebHit[]; sources: WebSource[] }> {
+  const variants = keywordVariants(query.trim());
+  let last: { hits: WebHit[]; sources: WebSource[] } = { hits: [], sources: [] };
+  for (const v of variants) {
+    last = await searchWebOnce(v, options);
+    if (last.hits.length > 0) break;
+  }
+  return last;
+}
+
+async function searchWebOnce(query: string, options: WebSearchOptions): Promise<{ hits: WebHit[]; sources: WebSource[] }> {
   const q = query.trim();
   if (!q) return { hits: [], sources: [] };
   const opts = { page: Math.max(1, options.page || 1), timeoutMs: options.timeoutMs || 3500, ...options };
