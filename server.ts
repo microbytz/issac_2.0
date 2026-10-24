@@ -59,7 +59,7 @@ import type { CrawledPage } from './crawler.ts';
 import { queryCCIndex, fetchWarcHtml } from './commonCrawl.ts';
 import type { CCRecord } from './commonCrawl.ts';
 import { InvertedIndex } from './searchIndex.ts';
-import { searchWeb, queryTerms, termCoverage, WEB_SOURCE_LABEL } from './shared/webSearch.ts';
+import { searchWeb, queryTerms, termCoverage, decodeEntities, WEB_SOURCE_LABEL } from './shared/webSearch.ts';
 import { getWeights, importWeights, exportWeights, learnFromPair } from './ranker.ts';
 import { rerankHits, exportDocEmbeddings, importDocEmbeddings } from './reranker.ts';
 import {
@@ -3006,6 +3006,7 @@ async function startServer() {
       let extractedTitle = queryTitle;
       let extractedContent = '';
       let extractedByline = '';
+      let extractedPublished: string | undefined;
       const domain = readerTarget.hostname;
 
       try {
@@ -3014,13 +3015,19 @@ async function startServer() {
         if (html) {
           const titleTagMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
           if (titleTagMatch && !extractedTitle) {
-            extractedTitle = titleTagMatch[1].trim();
+            extractedTitle = decodeEntities(titleTagMatch[1].trim());
           }
 
           const authorMatch = html.match(/<meta[^>]*name=["']author["'][^>]*content=["']([^"']+)["']/i) ||
                               html.match(/<meta[^>]*property=["']article:author["'][^>]*content=["']([^"']+)["']/i);
           if (authorMatch) {
-            extractedByline = authorMatch[1].trim();
+            extractedByline = decodeEntities(authorMatch[1].trim());
+          }
+          const publishedMatch =
+            html.match(/<meta[^>]*property=["']article:published_time["'][^>]*content=["']([^"']+)["']/i) ||
+            html.match(/<time[^>]*datetime=["']([^"']+)["']/i);
+          if (publishedMatch && !Number.isNaN(new Date(publishedMatch[1]).getTime())) {
+            extractedPublished = new Date(publishedMatch[1]).toLocaleDateString();
           }
 
           let cleaned = html
@@ -3036,7 +3043,7 @@ async function startServer() {
 
           const pMatches = Array.from(targetHtml.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi));
           const pTexts = pMatches
-            .map(m => m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim())
+            .map(m => decodeEntities(m[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim())
             .filter(t => t.length > 40 && !t.toLowerCase().includes('cookie') && !t.toLowerCase().includes('subscribe') && !t.toLowerCase().includes('privacy policy'));
 
           if (pTexts.length > 0) {
@@ -3057,7 +3064,7 @@ async function startServer() {
           paragraphs,
           wordCount,
           readingTimeMinutes: Math.max(1, Math.ceil(wordCount / 200)),
-          publishedAt: undefined,
+          publishedAt: extractedPublished,
           source: domain
         };
         boundedCacheSet(readerCache, cacheKey, { data: result, timestamp: Date.now() }, MAX_READER_CACHE_ENTRIES);
