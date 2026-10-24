@@ -427,7 +427,7 @@ function buildStructuredSynthesisFromSources(
     const cleanTitle = (src.title || src.siteName || 'Source').replace(/[\[\]]/g, '');
     bulletLines.push(
       `- **${cleanTitle}** (${src.siteName || 'web'}): ${
-        snippet || 'Provides technical documentation and reference benchmarks.'
+        snippet || src.title
       } [${citationNum}]`
     );
   });
@@ -454,32 +454,40 @@ async function performLiveMultiSourceFallback(
   const imageResults: FireplexityImageItem[] = [];
   const seenUrls = new Set<string>();
 
-  const queryTerms = query
-    .toLowerCase()
-    .replace(/[^\w\s]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 2);
+  const terms = queryTerms(query);
+  const minLocalCoverage = terms.length >= 2 ? 0.67 : 1;
+  const webPromise = searchWeb(query, { braveApiKey: process.env.BRAVE_SEARCH_API_KEY?.trim() }).catch(() => ({
+    hits: [],
+    sources: []
+  }));
 
-  // 1. Match relevant pages from the local Isaac Search catalog first
-  for (const page of localCatalogPages) {
-    if (!page || !page.url || seenUrls.has(page.url)) continue;
-    const hay = `${page.title || ''} ${page.snippet || ''} ${(page.tags || []).join(' ')}`.toLowerCase();
-    const hits = queryTerms.filter(t => hay.includes(t)).length;
-    if (hits > 0) {
-      seenUrls.add(page.url);
-      let siteName = 'isaac-index';
-      try {
-        siteName = new URL(page.url).hostname.replace('www.', '');
-      } catch (_) {}
-      sources.push({
-        url: page.url,
-        title: page.title || page.url,
-        description: page.snippet || page.meta_description || '',
-        markdown: `# ${page.title}\n\n${page.content || page.snippet || ''}\n\n${page.meta_description || ''}`,
-        siteName,
-        favicon: `https://www.google.com/s2/favicons?domain=${siteName}&sz=32`
-      });
-    }
+  // 1. Local catalog pages that actually cover the query, best coverage first
+  const localMatches = localCatalogPages
+    .filter(page => page && page.url)
+    .map(page => ({
+      page,
+      coverage: termCoverage(
+        terms,
+        `${page.title || ''} ${page.snippet || ''} ${page.meta_description || ''} ${(page.tags || []).join(' ')} ${(page.content || '').slice(0, 8000)}`
+      )
+    }))
+    .filter(m => m.coverage >= minLocalCoverage)
+    .sort((a, b) => b.coverage - a.coverage);
+  for (const { page } of localMatches) {
+    if (seenUrls.has(page.url)) continue;
+    seenUrls.add(page.url);
+    let siteName = 'isaac-index';
+    try {
+      siteName = new URL(page.url).hostname.replace('www.', '');
+    } catch (_) {}
+    sources.push({
+      url: page.url,
+      title: page.title || page.url,
+      description: page.snippet || page.meta_description || '',
+      markdown: `# ${page.title}\n\n${page.content || page.snippet || ''}\n\n${page.meta_description || ''}`,
+      siteName,
+      favicon: `https://www.google.com/s2/favicons?domain=${siteName}&sz=32`
+    });
   }
 
   // 2. Query Wikipedia Search + Extracts + PageImages API in parallel with HackerNews Algolia API
@@ -496,18 +504,6 @@ async function performLiveMultiSourceFallback(
       const pages = data?.query?.pages ? Object.values(data.query.pages) : [];
       for (const p of pages as any[]) {
         const pageUrl = p.fullurl || `https://en.wikipedia.org/?curid=${p.pageid}`;
-        if (!seenUrls.has(pageUrl) && p.extract) {
-          seenUrls.add(pageUrl);
-          sources.push({
-            url: pageUrl,
-            title: `${p.title} - Wikipedia`,
-            description: p.extract.slice(0, 260),
-            markdown: `# ${p.title}\n\n${p.extract}`,
-            siteName: 'en.wikipedia.org',
-            favicon: 'https://www.google.com/s2/favicons?domain=en.wikipedia.org&sz=32',
-            image: p.thumbnail?.source
-          });
-        }
         if (p.thumbnail?.source) {
           imageResults.push({
             url: pageUrl,
@@ -557,25 +553,28 @@ async function performLiveMultiSourceFallback(
           source: hostname
         });
 
-        if (sources.length < 6 && !seenUrls.has(storyUrl)) {
-          seenUrls.add(storyUrl);
-          sources.push({
-            url: storyUrl,
-            title: hit.title || storyUrl,
-            description: `Community discussion and technical reference on ${hostname} (${hit.points || 0} upvotes, ${hit.num_comments || 0} comments).`,
-            markdown: `# ${hit.title}\n\nSource: ${storyUrl} (${hostname})\nPublished: ${createdDate || 'Recent'}\n\n${
-              hit.story_text?.replace(/<[^>]+>/g, '') ||
-              `Referenced technical article on ${hostname} discussing ${query}.`
-            }`,
-            siteName: hostname,
-            favicon: `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`
-          });
-        }
       }
     } catch (_) {}
   })();
 
-  await Promise.all([wikiPromise, hnPromise]);
+  const [web] = await Promise.all([webPromise, wikiPromise, hnPromise]);
+  for (const hit of web.hits) {
+    if (sources.length >= 6) break;
+    if (seenUrls.has(hit.url)) continue;
+    seenUrls.add(hit.url);
+    let siteName = WEB_SOURCE_LABEL[hit.source];
+    try {
+      siteName = new URL(hit.url).hostname.replace('www.', '');
+    } catch (_) {}
+    sources.push({
+      url: hit.url,
+      title: hit.title,
+      description: hit.snippet,
+      markdown: `# ${hit.title}\n\n${hit.snippet}`,
+      siteName,
+      favicon: `https://www.google.com/s2/favicons?domain=${siteName}&sz=32`
+    });
+  }
 
   if (imageResults.length < 4) {
     try {
