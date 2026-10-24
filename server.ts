@@ -75,7 +75,7 @@ dotenv.config({ quiet: true });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 const MAX_CATALOG_PAGES = 500;
 const MAX_SERVER_SEEDS = 500;
