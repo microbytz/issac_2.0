@@ -6,7 +6,9 @@ import {
 } from 'lucide-react';
 import { apiUrl } from '../utils/apiConfig';
 
-const API_BASE = apiUrl('/api');
+// Resolved lazily on every use so a Server URL change in Settings applies
+// without a page reload (template literals call toString()).
+const API_BASE = { toString: () => apiUrl('/api') } as unknown as string;
 
 export interface CommunityNote {
   id: string;

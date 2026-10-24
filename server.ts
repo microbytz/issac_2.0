@@ -3057,7 +3057,7 @@ async function startServer() {
           paragraphs,
           wordCount,
           readingTimeMinutes: Math.max(1, Math.ceil(wordCount / 200)),
-          publishedAt: new Date().toLocaleDateString(),
+          publishedAt: undefined,
           source: domain
         };
         boundedCacheSet(readerCache, cacheKey, { data: result, timestamp: Date.now() }, MAX_READER_CACHE_ENTRIES);
@@ -3065,13 +3065,12 @@ async function startServer() {
         return;
       }
 
-      // 5. Intelligent story synthesis fallback from title, snippet, and domain context
+      // 5. Extraction failed — return only what we actually know (the result
+      // snippet) instead of synthesising article text.
       const fallbackParagraphs = [
-        querySnippet || 'Detailed reporting and comprehensive documentation on this topic.',
-        `According to coverage published by ${domain}, key developments surrounding "${queryTitle || 'this subject'}" encompass practical implications, analytical perspectives, and reference details for researchers and industry practitioners.`,
-        `Further technical details from ${domain} emphasize operational stability, contextual background, and field-tested practices across modern high-concurrency environments.`,
-        `Readers exploring this documentation can review related tags, bookmark the story to saved collections, or listen directly using the in-app audio synthesizer.`
-      ];
+        querySnippet,
+        `The full article text couldn't be extracted from ${domain}. Open the original page to read it.`
+      ].filter(Boolean);
       const fallbackContent = fallbackParagraphs.join('\n\n');
       const wordCount = fallbackContent.trim().split(/\s+/).filter(Boolean).length;
 
@@ -3083,7 +3082,8 @@ async function startServer() {
         paragraphs: fallbackParagraphs,
         wordCount,
         readingTimeMinutes: Math.max(1, Math.ceil(wordCount / 200)),
-        publishedAt: new Date().toLocaleDateString(),
+        publishedAt: undefined,
+        extraction_failed: true,
         source: domain
       };
 

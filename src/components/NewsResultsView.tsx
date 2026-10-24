@@ -64,11 +64,19 @@ export const NewsResultsView: React.FC<NewsResultsViewProps> = ({
 
       try {
         // Query Hacker News Algolia for real-time tech/world news
-        const hnUrl = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(cleanQ)}&tags=story&hitsPerPage=15`;
-        const res = await fetch(hnUrl, { signal: AbortSignal.timeout(4000) });
-        if (res.ok) {
+        // Relevance search limited to recent stories (last 30 days, then last
+        // year) — unbounded HN relevance search surfaces decade-old "headlines".
+        const nowSec = Math.floor(Date.now() / 1000);
+        let hits: any[] = [];
+        for (const windowDays of [30, 365]) {
+          const hnUrl = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(cleanQ)}&tags=story&hitsPerPage=15&numericFilters=${encodeURIComponent(`created_at_i>${nowSec - windowDays * 86400},points>3`)}`;
+          const res = await fetch(hnUrl, { signal: AbortSignal.timeout(4000) });
+          if (!res.ok) break;
           const data = await res.json();
-          const hits = Array.isArray(data?.hits) ? data.hits : [];
+          hits = Array.isArray(data?.hits) ? data.hits : [];
+          if (hits.length >= 5) break;
+        }
+        {
           for (const hit of hits) {
             let publisher = 'Hacker News';
             let storyUrl = hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`;
@@ -89,7 +97,7 @@ export const NewsResultsView: React.FC<NewsResultsViewProps> = ({
               url: storyUrl,
               snippet: hit.story_text
                 ? decodeEntities(hit.story_text.replace(/<[^>]+>/g, '')).slice(0, 240)
-                : `Latest discussion and coverage regarding ${hit.title || cleanQ} with ${hit.points || 12} community upvotes and ${hit.num_comments || 0} active perspectives.`,
+                : `${hit.points || 0} points · ${hit.num_comments || 0} comments on Hacker News`,
               publisher,
               publishedAt: hit.created_at || new Date().toISOString(),
               timeAgo,
@@ -99,11 +107,16 @@ export const NewsResultsView: React.FC<NewsResultsViewProps> = ({
         }
       } catch (_) {}
 
+      if (cancelled) return;
       setNewsList(articles);
       setLoading(false);
     };
 
+    let cancelled = false;
     fetchNews();
+    return () => {
+      cancelled = true;
+    };
   }, [query]);
 
   // SafeSearch Filter applied

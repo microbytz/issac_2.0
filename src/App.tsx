@@ -81,7 +81,9 @@ import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { SpeechRecognition as NativeSpeechRecognition } from '@capacitor-community/speech-recognition';
 
 // Dynamic API base: resolves to deployed Cloud Run server URL in mobile/Capacitor, or relative /api in browser
-const API_BASE = apiUrl('/api');
+// Resolved lazily on every use so a Server URL change in Settings applies
+// without a page reload (template literals call toString()).
+const API_BASE = { toString: () => apiUrl('/api') } as unknown as string;
 
 // Interfaces
 interface SearchCollection {
