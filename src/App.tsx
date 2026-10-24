@@ -1336,31 +1336,31 @@ export default function App() {
         created_at: "Wed Jun 17 01:00:00 2026",
         pages: [
           {
-            id: "seed-tinygpt",
-            url: "https://arxiv.org/abs/2305.tinygpt",
-            title: "TinyGPT article",
-            snippet: "Deep dive into TinyGPT, a 10M parameter language model optimized to run locally on low-power architectures. Includes training logs and benchmark reviews.",
-            backlinks: 24,
+            id: "seed-attention",
+            url: "https://arxiv.org/abs/1706.03762",
+            title: "Attention Is All You Need",
+            snippet: "The Transformer paper: a sequence model based solely on attention mechanisms, dispensing with recurrence and convolutions.",
+            backlinks: 0,
             indexed_at: "Wed Jun 17 01:21:00 2026",
-            likes: 310
+            likes: 0
           },
           {
-            id: "seed-llm-paper",
-            url: "https://arxiv.org/abs/2306.llmpaper",
-            title: "LLM paper",
-            snippet: "This technical paper describes a new architecture for large language models that drastically reduces inter-node training latency using sparse decentralized attention kernels.",
-            backlinks: 45,
+            id: "seed-lora",
+            url: "https://arxiv.org/abs/2106.09685",
+            title: "LoRA: Low-Rank Adaptation of Large Language Models",
+            snippet: "Freezes pretrained model weights and injects trainable low-rank decomposition matrices into each Transformer layer to cut fine-tuning cost.",
+            backlinks: 0,
             indexed_at: "Tue Jun 16 22:15:00 2026",
-            likes: 420
+            likes: 0
           },
           {
-            id: "seed-training-guide",
-            url: "https://github.com/guide/llm-training",
-            title: "Training guide",
-            snippet: "Step-by-step practical walk-through of fine-tuning Llama and Mistral model parameters using low-rank adaptation on a single consumer GPU card.",
-            backlinks: 19,
+            id: "seed-peft-docs",
+            url: "https://huggingface.co/docs/peft",
+            title: "Hugging Face PEFT documentation",
+            snippet: "Parameter-efficient fine-tuning methods (LoRA, prefix tuning, IA3) for adapting large pretrained models on modest hardware.",
+            backlinks: 0,
             indexed_at: "Mon Jun 15 14:30:00 2026",
-            likes: 185
+            likes: 0
           }
         ]
       },
@@ -1375,18 +1375,18 @@ export default function App() {
             url: "https://doc.rust-lang.org/book/",
             title: "Rust docs",
             snippet: "The official guide to the Rust programming language, covering memory safety fundamentals, cargo tooling, traits, lifetimes, and zero-cost abstractions.",
-            backlinks: 150,
+            backlinks: 0,
             indexed_at: "Wed Jun 17 08:00:00 2026",
-            likes: 670
+            likes: 0
           },
           {
             id: "seed-python-tutorial",
             url: "https://docs.python.org/3/tutorial/",
             title: "Python tutorial",
             snippet: "Official tutorial introducing the basic concepts, data structures, control flow statements, modules, objects, and standard libraries of the Python 3 interpreter.",
-            backlinks: 98,
+            backlinks: 0,
             indexed_at: "Tue Jun 16 19:40:00 2026",
-            likes: 240
+            likes: 0
           }
         ]
       }
